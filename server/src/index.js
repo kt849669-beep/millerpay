@@ -11,6 +11,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { adminIdentity, allowedOrigins, jwtSecret, localNetworkOrigin, port } from './config.js'
 
 const app = express()
+app.set('trust proxy', 1)
 const loginDocument = [
   new URL('../public/login.html', import.meta.url),
   new URL('../../apps/user-app/dist/login.html', import.meta.url),
@@ -37,7 +38,13 @@ app.use(express.json({ limit: '40mb' }))
 app.use(morgan('dev'))
 app.use(
   '/api/auth',
-  rateLimit({ windowMs: 15 * 60 * 1000, limit: 50, standardHeaders: true, legacyHeaders: false }),
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 50,
+    standardHeaders: true,
+    legacyHeaders: false,
+    validate: { forwardedHeader: false },
+  }),
 )
 
 const accounts = [
