@@ -22,7 +22,6 @@ import {
 } from 'lucide-react'
 import { MEDIA_ORIGIN, apiRequest } from './lib/api'
 
-
 function Login({ onAuthenticated }) {
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
@@ -122,7 +121,7 @@ function Login({ onAuthenticated }) {
           )}
           {error && !pending && <p className="login-error">{error}</p>}
           <button className="primary-button login-button" disabled={!loginReady || loading}>
-            {loading ? 'CHECKING…' : 'LOG IN'}
+            {loading ? 'LOGGING IN…' : 'LOG IN'}
           </button>
         </form>
         {pending && (
@@ -224,7 +223,10 @@ function AppHeader({ title, home, setPage }) {
 function Home({ setPage, settings }) {
   const uploadedSlides = Array.isArray(settings.slideImages) ? settings.slideImages : []
   const homeSlides = uploadedSlides.length
-    ? uploadedSlides.map((item) => ({ src: item.url.startsWith('http') ? item.url : `${MEDIA_ORIGIN}${item.url}`, name: item.name }))
+    ? uploadedSlides.map((item) => ({
+        src: item.url.startsWith('http') ? item.url : `${MEDIA_ORIGIN}${item.url}`,
+        name: item.name,
+      }))
     : [{ src: '/slide-3.jpg', name: 'Recharge rewards' }]
   const [slide, setSlide] = useState(0)
   useEffect(() => setSlide(0), [homeSlides.length])
