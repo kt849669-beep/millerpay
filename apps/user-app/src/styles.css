@@ -2536,6 +2536,10 @@ input {
   height: auto;
   aspect-ratio: 2.48/1;
 }
+.hero-slide img {
+  transform: scale(1.035);
+  transform-origin: center;
+}
 .bottom-nav {
   height: 89px;
   inset: auto 0 0;
