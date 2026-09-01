@@ -2531,7 +2531,7 @@ input {
   }
 }
 
-/* Screenshot-matched mobile carousel and footer */
+/* Mobile carousel and footer */
 .hero-slide {
   height: auto;
   aspect-ratio: 2.48/1;
@@ -2690,7 +2690,7 @@ input {
   }
 }
 
-/* Final screenshot typography and spacing pass */
+/* Mobile typography and spacing */
 :root {
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Arial, sans-serif;
 }

@@ -27,7 +27,7 @@ Devices connected to the same Wi-Fi can use the network address shown by Vite wh
 
 ## Environment
 
-Copy `server/.env.example` to `server/.env` and keep production secrets out of source control. Configure a strong JWT secret, private administrator credentials and the MongoDB connection before deployment.
+Create `server/.env` using `server/.env.example` and keep production secrets out of source control. Configure a strong JWT secret, private administrator credentials and the MongoDB connection before deployment.
 
 The public production domain is `https://millerpay-app.online`.
 
