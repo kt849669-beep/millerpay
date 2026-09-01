@@ -65,7 +65,7 @@ function Login({ onAuthenticated }) {
           token: pending?.token,
           body: { mpin: next },
         })
-        window.setTimeout(() => onAuthenticated(pending), 160)
+        onAuthenticated(pending)
       } catch (err) {
         setError(err.message || 'Verification failed. Try again.')
         setMpin('')
@@ -450,7 +450,7 @@ function WalletApp({ logout }) {
         .catch(() => setSettingsReady(true))
     }
     fetchSettings()
-    const interval = setInterval(fetchSettings, 5000)
+    const interval = setInterval(fetchSettings, 15000)
     return () => clearInterval(interval)
   }, [])
 

