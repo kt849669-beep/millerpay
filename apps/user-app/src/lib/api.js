@@ -8,11 +8,12 @@ export const API_URL =
 
 export const MEDIA_ORIGIN = API_URL.replace(/\/api$/, '')
 
-export async function apiRequest(path, { body, headers, ...options } = {}) {
+export async function apiRequest(path, { token, body, headers, ...options } = {}) {
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
       ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...headers,
     },
     body: body === undefined ? undefined : JSON.stringify(body),
