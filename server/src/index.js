@@ -12,12 +12,13 @@ import { adminIdentity, allowedOrigins, jwtSecret, localNetworkOrigin, port } fr
 
 const app = express()
 app.set('trust proxy', 1)
-const loginDocument = [
-  new URL('../public/login.html', import.meta.url),
-  new URL('../../apps/user-app/dist/login.html', import.meta.url),
-]
-  .filter((file) => existsSync(file))
-  .map((file) => readFileSync(file, 'utf8'))[0]
+const packagedLoginDocument = new URL('../public/login.html', import.meta.url)
+const workspaceLoginDocument = new URL('../../apps/user-app/dist/login.html', import.meta.url)
+const loginDocument = existsSync(packagedLoginDocument)
+  ? readFileSync(packagedLoginDocument, 'utf8')
+  : existsSync(workspaceLoginDocument)
+    ? readFileSync(workspaceLoginDocument, 'utf8')
+    : null
 const supabase =
   process.env.SUPABASE_URL && process.env.SUPABASE_KEY
     ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY)
