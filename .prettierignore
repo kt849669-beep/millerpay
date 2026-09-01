@@ -1,0 +1,4 @@
+node_modules
+dist
+server/data/uploads
+server/data/local-state.json
