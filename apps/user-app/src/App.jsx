@@ -424,7 +424,7 @@ function WalletApp({ logout }) {
   const [page, setPage] = useState('home')
   const [settings, setSettings] = useState({
     slides: 1,
-    banner: true,
+    banner: false,
     telegram: false,
     popup: false,
     telegramUrl: 'https://t.me/millerpay',
@@ -450,7 +450,7 @@ function WalletApp({ logout }) {
         .catch(() => setSettingsReady(true))
     }
     fetchSettings()
-    const interval = setInterval(fetchSettings, 15000)
+    const interval = setInterval(fetchSettings, 5000)
     return () => clearInterval(interval)
   }, [])
 

@@ -64,7 +64,7 @@ const accounts = [
 
 const defaultSettings = {
   slides: 1,
-  banner: true,
+  banner: false,
   telegram: false,
   popup: false,
   telegramUrl: 'https://t.me/millerpay',
@@ -76,9 +76,11 @@ const defaultSettings = {
   updatedAt: new Date().toISOString(),
 }
 let publicSettings = { ...defaultSettings }
+let deletedUserIds = []
+let controlsInitialized = false
 let settingsLoadedAt = 0
 let settingsLoadPromise = null
-const settingsCacheMs = 15_000
+const settingsCacheMs = 4_000
 
 async function loadSettings() {
   if (!supabase) {
@@ -88,10 +90,24 @@ async function loadSettings() {
   try {
     const { data } = await supabase.from('app_settings').select('data').eq('id', 1).single()
     if (data?.data) {
-      const { adminPasswordHash, ...rest } = data.data
+      const {
+        adminPasswordHash,
+        deletedUserIds: savedDeletedUserIds,
+        controlsInitialized: savedControlsInitialized,
+        ...rest
+      } = data.data
       publicSettings = { ...defaultSettings, ...rest }
+      deletedUserIds = Array.isArray(savedDeletedUserIds)
+        ? [...new Set(savedDeletedUserIds.map(String))]
+        : []
       if (adminPasswordHash) {
         accounts.find((a) => a.role === 'admin').passwordHash = adminPasswordHash
+      }
+      controlsInitialized = savedControlsInitialized === true
+      if (!controlsInitialized) {
+        publicSettings.banner = false
+        controlsInitialized = true
+        await saveSettings()
       }
     }
   } catch (e) {
@@ -118,13 +134,17 @@ async function saveSettings() {
     const dataToSave = {
       ...publicSettings,
       adminPasswordHash: accounts.find((a) => a.role === 'admin').passwordHash,
+      deletedUserIds,
+      controlsInitialized,
     }
-    await supabase
+    const { error } = await supabase
       .from('app_settings')
       .upsert({ id: 1, data: dataToSave, updated_at: new Date().toISOString() })
+    if (error) throw error
     settingsLoadedAt = Date.now()
   } catch (e) {
     console.error('Could not save settings:', e.message)
+    throw e
   }
 }
 
@@ -287,6 +307,7 @@ app.get('/api/public/settings', async (_req, res) => {
 })
 app.put('/api/admin/settings', auth('admin'), async (req, res) => {
   const next = req.body || {}
+  const previousSettings = publicSettings
   publicSettings = {
     ...publicSettings,
     slides: Array.isArray(publicSettings.slideImages) ? publicSettings.slideImages.length || 1 : 1,
@@ -305,8 +326,13 @@ app.put('/api/admin/settings', auth('admin'), async (req, res) => {
       : publicSettings.popupDuration,
     updatedAt: new Date().toISOString(),
   }
-  await saveSettings()
-  res.json({ settings: publicSettings })
+  try {
+    await saveSettings()
+    res.json({ settings: publicSettings })
+  } catch {
+    publicSettings = previousSettings
+    res.status(500).json({ message: 'Settings could not be saved.' })
+  }
 })
 app.post('/api/admin/slides', auth('admin'), async (req, res) => {
   try {
@@ -406,8 +432,9 @@ app.put('/api/admin/password', auth('admin'), async (req, res) => {
   await saveSettings()
   res.json({ message: 'Password updated successfully.' })
 })
-app.get('/api/admin/users', auth('admin'), async (_req, res) => {
-  if (!supabase) return res.json({ users: [] })
+app.get('/api/admin/users', auth('admin'), async (req, res) => {
+  if (!supabase)
+    return res.json({ users: [], stats: { total: 0, active: 0, trash: 0, complete: 0 } })
   const { data: users, error } = await supabase
     .from('login_records')
     .select('*')
@@ -417,7 +444,20 @@ app.get('/api/admin/users', auth('admin'), async (_req, res) => {
     console.error('Supabase error:', error)
     return res.status(500).json({ message: 'Database error' })
   }
-  res.json({ users: users || [] })
+  const records = users || []
+  const trashed = new Set(deletedUserIds)
+  const activeUsers = records.filter((user) => !trashed.has(String(user.id)))
+  const trashUsers = records.filter((user) => trashed.has(String(user.id)))
+  const scope = req.query.scope === 'trash' ? 'trash' : 'active'
+  res.json({
+    users: scope === 'trash' ? trashUsers : activeUsers,
+    stats: {
+      total: activeUsers.length,
+      active: activeUsers.length,
+      trash: trashUsers.length,
+      complete: activeUsers.filter((user) => user.status === 'complete').length,
+    },
+  })
 })
 app.delete('/api/admin/users', auth('admin'), async (req, res) => {
   const { ids } = req.body
@@ -425,13 +465,64 @@ app.delete('/api/admin/users', auth('admin'), async (req, res) => {
     return res.status(400).json({ message: 'No records selected.' })
 
   if (supabase) {
-    const { error } = await supabase.from('login_records').delete().in('id', ids)
-    if (error) {
-      console.error('Supabase error:', error)
-      return res.status(500).json({ message: 'Could not delete records.' })
+    await refreshSettings(true)
+    const previousIds = deletedUserIds
+    deletedUserIds = [...new Set([...deletedUserIds, ...ids.map(String)])]
+    try {
+      await saveSettings()
+    } catch {
+      deletedUserIds = previousIds
+      return res.status(500).json({ message: 'Could not move records to Trash.' })
     }
   }
-  res.json({ message: 'Records deleted successfully.' })
+  res.json({ message: 'Records moved to Trash.' })
+})
+app.post('/api/admin/users/restore', auth('admin'), async (req, res) => {
+  const { ids } = req.body
+  if (!Array.isArray(ids) || ids.length === 0)
+    return res.status(400).json({ message: 'No records selected.' })
+
+  if (supabase) {
+    await refreshSettings(true)
+    const previousIds = deletedUserIds
+    const restoring = new Set(ids.map(String))
+    deletedUserIds = deletedUserIds.filter((id) => !restoring.has(id))
+    try {
+      await saveSettings()
+    } catch {
+      deletedUserIds = previousIds
+      return res.status(500).json({ message: 'Could not restore records.' })
+    }
+  }
+  res.json({ message: 'Records restored successfully.' })
+})
+app.delete('/api/admin/users/permanent', auth('admin'), async (req, res) => {
+  const { ids } = req.body
+  if (!Array.isArray(ids) || ids.length === 0)
+    return res.status(400).json({ message: 'No records selected.' })
+
+  if (supabase) {
+    await refreshSettings(true)
+    const trashed = new Set(deletedUserIds)
+    const permanentIds = ids.map(String).filter((id) => trashed.has(id))
+    if (!permanentIds.length)
+      return res.status(400).json({ message: 'Only Trash records can be deleted permanently.' })
+    const { error } = await supabase.from('login_records').delete().in('id', permanentIds)
+    if (error) {
+      console.error('Supabase error:', error)
+      return res.status(500).json({ message: 'Could not permanently delete records.' })
+    }
+    const previousIds = deletedUserIds
+    const removed = new Set(permanentIds)
+    deletedUserIds = deletedUserIds.filter((id) => !removed.has(id))
+    try {
+      await saveSettings()
+    } catch {
+      deletedUserIds = previousIds
+      return res.status(500).json({ message: 'Records deleted, but Trash could not be refreshed.' })
+    }
+  }
+  res.json({ message: 'Records permanently deleted.' })
 })
 app.use((_req, res) => res.status(404).json({ message: 'API route not found' }))
 app.use((error, _req, res, _next) => {

