@@ -1,4 +1,7 @@
 node_modules
 dist
+apps/user-app/public/miller-pay
+apps/user-app/public/blog
+apps/user-app/public/seo-assets/styles.css
 server/data/uploads
 server/data/local-state.json
