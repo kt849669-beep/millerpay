@@ -1,0 +1,35 @@
+{
+  "redirects": [
+    { "source": "/", "destination": "/login", "statusCode": 301 },
+    { "source": "/login/", "destination": "/login", "statusCode": 301 },
+    { "source": "/login.html", "destination": "/login", "statusCode": 301 },
+    { "source": "/miller-pay", "destination": "/miller-pay/", "statusCode": 301 },
+    { "source": "/blog", "destination": "/blog/", "statusCode": 301 },
+    { "source": "/about", "destination": "/about/", "statusCode": 301 },
+    { "source": "/legal", "destination": "/legal/", "statusCode": 301 }
+  ],
+  "rewrites": [
+    { "source": "/login", "destination": "/login.html" },
+    { "source": "/admin", "destination": "/admin/index.html" },
+    { "source": "/admin/", "destination": "/admin/index.html" },
+    { "source": "/miller-pay/", "destination": "/miller-pay/index.html" },
+    { "source": "/blog/", "destination": "/blog/index.html" },
+    { "source": "/about/", "destination": "/about/index.html" },
+    { "source": "/legal/", "destination": "/legal/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/assets/(.*)",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+    },
+    {
+      "source": "/seo-assets/images/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=86400, stale-while-revalidate=604800"
+        }
+      ]
+    }
+  ]
+}
