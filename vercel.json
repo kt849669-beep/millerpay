@@ -1,9 +1,4 @@
 {
-  "functions": {
-    "src/index.js": {
-      "includeFiles": ["public/**"]
-    }
-  },
   "redirects": [
     { "source": "/", "destination": "/login", "statusCode": 301 },
     { "source": "/login/", "destination": "/login", "statusCode": 301 },
