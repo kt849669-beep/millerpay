@@ -1,1 +1,6 @@
-export { default } from '../server/src/index.js'
+import express from 'express'
+import app from '../server/src/index.js'
+
+void express
+
+export default app
