@@ -541,9 +541,21 @@ function auth(role) {
       }
       if (role === 'admin') {
         const device = currentDevice(req)
-        const session = adminSecurity.sessions.find(
+        let session = adminSecurity.sessions.find(
           (item) => item.id === payload.sid && item.deviceHash === device?.hash,
         )
+        if (!session && !payload.sid && device) {
+          const legacyTrustedDevice = adminSecurity.trustedDevices.find(
+            (item) => item.hash === device.hash,
+          )
+          if (legacyTrustedDevice) {
+            session = activateAdminSession(req, res, { trusted: true })
+            adminSecurity.trustedDevices = adminSecurity.trustedDevices.filter(
+              (item) => item.hash !== device.hash,
+            )
+            await saveSecurity()
+          }
+        }
         if (!session) {
           clearSession(req, res, role)
           return res.status(401).json({ message: 'Session expired. Please sign in again.' })
