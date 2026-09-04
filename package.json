@@ -2,6 +2,7 @@
   "name": "miller-pay",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "workspaces": [
     "apps/*",
     "server"
@@ -11,7 +12,7 @@
     "dev:user": "npm run dev -w @millerpay/user-app",
     "dev:admin": "npm run dev -w @millerpay/admin-app",
     "dev:server": "npm run dev -w server",
-    "build": "npm run build -w @millerpay/user-app && npm run build -w @millerpay/admin-app",
+    "build": "npm run build -w @millerpay/user-app && npm run build -w @millerpay/admin-app && node scripts/prepare-vercel.mjs",
     "check": "npm run format:check && npm run build",
     "format": "prettier --write \"apps/**/*.{js,jsx,css,html,json}\" \"server/**/*.{js,json}\" \"*.{json,md}\"",
     "format:check": "prettier --check \"apps/**/*.{js,jsx,css,html,json}\" \"server/**/*.{js,json}\" \"*.{json,md}\"",

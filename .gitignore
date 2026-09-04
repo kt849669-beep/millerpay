@@ -1,5 +1,9 @@
 node_modules/
 dist/
 .env
+server/.env.security
 *.log
 .DS_Store
+.vercel
+.env*
+public/
