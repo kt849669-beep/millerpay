@@ -29,8 +29,9 @@ Devices connected to the same Wi-Fi can use the network address shown by Vite wh
 
 Create `server/.env` using `server/.env.example` and keep production secrets out of source control.
 Configure separate user/admin JWT secrets, an MFA encryption key, private administrator credentials,
-and the Supabase server credentials before deployment. Every security secret must contain at least
-64 characters; the API fails closed when one is missing.
+and the Supabase server credentials before deployment. Keep `SUPABASE_SERVICE_KEY` server-only and
+never expose it in either frontend bundle. Every security secret must contain at least 64 characters;
+the API fails closed when one is missing.
 
 Authentication sessions are delivered through Secure, HttpOnly, SameSite cookies. The admin can
 bind Google Authenticator from the Authenticator section after signing in. Once bound, a current

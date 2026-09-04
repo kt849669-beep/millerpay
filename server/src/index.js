@@ -30,9 +30,12 @@ const loginDocument = existsSync(packagedLoginDocument)
   : existsSync(workspaceLoginDocument)
     ? readFileSync(workspaceLoginDocument, 'utf8')
     : null
+const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY
 const supabase =
-  process.env.SUPABASE_URL && process.env.SUPABASE_KEY
-    ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY)
+  process.env.SUPABASE_URL && supabaseKey
+    ? createClient(process.env.SUPABASE_URL, supabaseKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      })
     : null
 
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }))
