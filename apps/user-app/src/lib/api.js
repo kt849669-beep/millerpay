@@ -8,18 +8,23 @@ export const API_URL =
 
 export const MEDIA_ORIGIN = API_URL.replace(/\/api$/, '')
 
-export async function apiRequest(path, { token, body, headers, ...options } = {}) {
+export async function apiRequest(path, { body, headers, ...options } = {}) {
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
+    credentials: 'include',
     headers: {
       ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...headers,
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
 
   const data = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(data.message || 'Unable to complete the request.')
+  if (!response.ok) {
+    const error = new Error(data.message || 'Unable to complete the request.')
+    error.status = response.status
+    error.data = data
+    throw error
+  }
   return data
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   ArrowLeft,
   Banknote,
@@ -527,21 +527,20 @@ function WalletApp({ logout }) {
 }
 
 export default function App() {
-  const initial = useMemo(() => {
-    try {
-      return JSON.parse(localStorage.getItem('miller-user'))
-    } catch {
-      return null
-    }
-  }, [])
-  const [session, setSession] = useState(initial)
-  const authenticate = (data) => {
-    localStorage.setItem('miller-user', JSON.stringify(data))
-    setSession(data)
-  }
-  const logout = () => {
+  const [session, setSession] = useState(null)
+  const [checkingSession, setCheckingSession] = useState(true)
+  useEffect(() => {
     localStorage.removeItem('miller-user')
+    apiRequest('/auth/session/user')
+      .then((data) => setSession(data))
+      .catch(() => setSession(null))
+      .finally(() => setCheckingSession(false))
+  }, [])
+  const authenticate = (data) => setSession(data)
+  const logout = async () => {
+    await apiRequest('/auth/logout', { method: 'POST', body: { role: 'user' } }).catch(() => {})
     setSession(null)
   }
+  if (checkingSession) return null
   return session ? <WalletApp logout={logout} /> : <Login onAuthenticated={authenticate} />
 }

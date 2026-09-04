@@ -1,8 +1,21 @@
 import { randomBytes } from 'node:crypto'
+import { config as loadEnv } from 'dotenv'
+
+loadEnv({ path: new URL('../.env.security', import.meta.url) })
 
 export const port = Number(process.env.PORT || 5000)
-export const jwtSecret =
-  process.env.JWT_SECRET || 'miller-pay-local-secret-change-before-production'
+
+function requiredSecret(name) {
+  const value = process.env[name]
+  if (!value || value.length < 64) {
+    throw new Error(`${name} must be configured with at least 64 characters.`)
+  }
+  return value
+}
+
+export const userJwtSecret = requiredSecret('USER_JWT_SECRET')
+export const adminJwtSecret = requiredSecret('ADMIN_JWT_SECRET')
+export const mfaEncryptionKey = requiredSecret('MFA_ENCRYPTION_KEY')
 
 export const allowedOrigins = [
   process.env.USER_APP_URL,
