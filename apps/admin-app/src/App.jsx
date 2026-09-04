@@ -1075,12 +1075,67 @@ function Profile({ session }) {
   const [mfaCode, setMfaCode] = useState('')
   const [message, setMessage] = useState('')
   const [events, setEvents] = useState([])
+  const [deviceSessions, setDeviceSessions] = useState([])
+  const [deviceLimit, setDeviceLimit] = useState(6)
+  const [deviceMessage, setDeviceMessage] = useState('')
+  const [updatingDevice, setUpdatingDevice] = useState('')
   const [saving, setSaving] = useState(false)
+  const loadSecurity = async () => {
+    try {
+      const [auditData, sessionData] = await Promise.all([
+        apiRequest('/admin/security/audit', { token: session.token }),
+        apiRequest('/admin/security/sessions', { token: session.token }),
+      ])
+      setEvents(auditData.events || [])
+      setDeviceSessions(sessionData.sessions || [])
+      setDeviceLimit(sessionData.limit || 6)
+    } catch {
+      setEvents([])
+      setDeviceSessions([])
+    }
+  }
   useEffect(() => {
-    apiRequest('/admin/security/audit', { token: session.token })
-      .then((data) => setEvents(data.events || []))
-      .catch(() => setEvents([]))
+    loadSecurity()
   }, [session.token])
+
+  const setTrusted = async (device) => {
+    setUpdatingDevice(device.id)
+    setDeviceMessage('')
+    try {
+      const data = await apiRequest(`/admin/security/sessions/${device.id}`, {
+        method: 'PATCH',
+        token: session.token,
+        body: { trusted: !device.trusted },
+      })
+      setDeviceSessions((current) =>
+        current.map((item) =>
+          item.id === device.id ? { ...item, trusted: data.trusted === true } : item,
+        ),
+      )
+      setDeviceMessage(data.trusted ? 'Device is trusted.' : 'Device trust removed.')
+    } catch (error) {
+      setDeviceMessage(error.message || 'Device trust could not be updated.')
+    } finally {
+      setUpdatingDevice('')
+    }
+  }
+
+  const revokeSession = async (device) => {
+    setUpdatingDevice(device.id)
+    setDeviceMessage('')
+    try {
+      await apiRequest(`/admin/security/sessions/${device.id}`, {
+        method: 'DELETE',
+        token: session.token,
+      })
+      setDeviceSessions((current) => current.filter((item) => item.id !== device.id))
+      setDeviceMessage('Device signed out.')
+    } catch (error) {
+      setDeviceMessage(error.message || 'Device could not be signed out.')
+    } finally {
+      setUpdatingDevice('')
+    }
+  }
   const submit = async (event) => {
     event.preventDefault()
     setMessage('')
@@ -1170,11 +1225,65 @@ function Profile({ session }) {
       <section className="admin-panel session-panel">
         <header>
           <div>
-            <span>LOGIN HISTORY</span>
-            <h2>Admin sessions</h2>
+            <span>TRUSTED DEVICES</span>
+            <h2>Active admin sessions</h2>
           </div>
-          <RefreshCcw />
+          <button className="session-refresh" type="button" onClick={loadSecurity}>
+            <RefreshCcw />
+          </button>
         </header>
+        <p className="session-limit-copy">
+          Up to {deviceLimit} devices can stay signed in. A seventh login removes the oldest
+          session.
+        </p>
+        {deviceSessions.length ? (
+          <div className="device-session-list">
+            {deviceSessions.map((device) => (
+              <article key={device.id} className={device.current ? 'current' : ''}>
+                <MonitorSmartphone />
+                <span>
+                  <strong>
+                    {device.label} {device.current ? '· This device' : ''}
+                  </strong>
+                  <small>
+                    {device.ip} · Last active {new Date(device.lastSeenAt).toLocaleString()}
+                  </small>
+                </span>
+                <div>
+                  <button
+                    className={device.trusted ? 'trusted' : ''}
+                    type="button"
+                    disabled={updatingDevice === device.id}
+                    onClick={() => setTrusted(device)}
+                  >
+                    <ShieldCheck /> {device.trusted ? 'Trusted' : 'Trust device'}
+                  </button>
+                  {!device.current && (
+                    <button
+                      className="revoke"
+                      type="button"
+                      disabled={updatingDevice === device.id}
+                      onClick={() => revokeSession(device)}
+                    >
+                      <LogOut /> Sign out
+                    </button>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <Empty
+            icon={MonitorSmartphone}
+            title="No active sessions"
+            text="Signed-in admin devices will appear here."
+          />
+        )}
+        {deviceMessage && <p className="admin-message">{deviceMessage}</p>}
+        <div className="session-history-title">
+          <span>LOGIN HISTORY</span>
+          <h3>Recent security activity</h3>
+        </div>
         {events.length ? (
           <div className="security-event-list">
             {events.map((event) => (

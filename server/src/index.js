@@ -134,6 +134,7 @@ const defaultAdminSecurity = {
   },
   sessionVersion: 1,
   trustedDevices: [],
+  sessions: [],
   auditLogs: [],
 }
 let adminSecurity = structuredClone(defaultAdminSecurity)
@@ -145,6 +146,8 @@ const settingsObject = 'system/app-settings.json'
 let settingsPersistence = 'database'
 let settingsBucketPromise = null
 const encryptionKey = createHash('sha256').update(mfaEncryptionKey).digest()
+const maxAdminSessions = 6
+const adminSessionMaxAgeMs = 400 * 24 * 60 * 60 * 1000
 
 function hashValue(value) {
   return createHash('sha256').update(String(value)).digest('hex')
@@ -173,6 +176,16 @@ function decryptValue(value) {
 }
 
 function mergeAdminSecurity(saved = {}, legacyPasswordHash) {
+  const sessions = Array.isArray(saved.sessions)
+    ? saved.sessions
+        .filter((session) => session?.id && session?.deviceHash)
+        .sort(
+          (left, right) =>
+            Date.parse(right.lastSeenAt || right.createdAt || 0) -
+            Date.parse(left.lastSeenAt || left.createdAt || 0),
+        )
+        .slice(0, maxAdminSessions)
+    : []
   return {
     ...defaultAdminSecurity,
     ...saved,
@@ -180,6 +193,7 @@ function mergeAdminSecurity(saved = {}, legacyPasswordHash) {
     mfa: { ...defaultAdminSecurity.mfa, ...(saved.mfa || {}) },
     login: { ...defaultAdminSecurity.login, ...(saved.login || {}) },
     trustedDevices: Array.isArray(saved.trustedDevices) ? saved.trustedDevices.slice(-20) : [],
+    sessions,
     auditLogs: Array.isArray(saved.auditLogs) ? saved.auditLogs.slice(-100) : [],
   }
 }
@@ -458,7 +472,7 @@ function tokenSecret(role) {
   return role === 'admin' ? adminJwtSecret : userJwtSecret
 }
 
-function sign(user) {
+function sign(user, sessionId) {
   return jwt.sign(
     {
       sub: user.id,
@@ -466,18 +480,20 @@ function sign(user) {
       email: user.email,
       phone: user.phone,
       name: user.name,
-      ...(user.role === 'admin' ? { sessionVersion: adminSecurity.sessionVersion } : {}),
+      ...(user.role === 'admin'
+        ? { sessionVersion: adminSecurity.sessionVersion, sid: sessionId }
+        : {}),
     },
     tokenSecret(user.role),
-    { expiresIn: user.role === 'admin' ? '30m' : '8h' },
+    { expiresIn: user.role === 'admin' ? '400d' : '8h' },
   )
 }
 
-function issueSession(req, res, user) {
+function issueSession(req, res, user, sessionId) {
   res.cookie(
     sessionCookieName(user.role, req),
-    sign(user),
-    cookieOptions(req, user.role === 'admin' ? 30 * 60 * 1000 : 8 * 60 * 60 * 1000),
+    sign(user, sessionId),
+    cookieOptions(req, user.role === 'admin' ? adminSessionMaxAgeMs : 8 * 60 * 60 * 1000),
   )
   return { id: user.id, name: user.name, email: user.email, phone: user.phone, role: user.role }
 }
@@ -488,6 +504,13 @@ function clearSession(req, res, role) {
     `miller-${role}-session`,
     `__Host-miller-${role}-session`,
   ]
+  for (const name of new Set(names)) {
+    res.clearCookie(name, { ...cookieOptions(req, 0), maxAge: undefined })
+  }
+}
+
+function clearDevice(req, res) {
+  const names = [deviceCookieName(req), 'miller-admin-device', '__Host-miller-admin-device']
   for (const name of new Set(names)) {
     res.clearCookie(name, { ...cookieOptions(req, 0), maxAge: undefined })
   }
@@ -516,6 +539,25 @@ function auth(role) {
         clearSession(req, res, role)
         return res.status(401).json({ message: 'Session expired. Please sign in again.' })
       }
+      if (role === 'admin') {
+        const device = currentDevice(req)
+        const session = adminSecurity.sessions.find(
+          (item) => item.id === payload.sid && item.deviceHash === device?.hash,
+        )
+        if (!session) {
+          clearSession(req, res, role)
+          return res.status(401).json({ message: 'Session expired. Please sign in again.' })
+        }
+        const lastSeen = Date.parse(session.lastSeenAt || session.createdAt || '')
+        if (!Number.isFinite(lastSeen) || Date.now() - lastSeen > 5 * 60 * 1000) {
+          session.lastSeenAt = new Date().toISOString()
+          saveSecurity().catch((error) =>
+            console.error('Could not refresh admin session:', error.message),
+          )
+        }
+        req.adminSession = session
+        issueSession(req, res, accounts[0], session.id)
+      }
       req.auth = payload
       next()
     } catch {
@@ -532,37 +574,104 @@ function ensureDeviceCookie(req, res) {
     cookies[name] || cookies['__Host-miller-admin-device'] || cookies['miller-admin-device']
   if (!value || value.length < 32) {
     value = randomBytes(32).toString('base64url')
-    res.cookie(name, value, cookieOptions(req, 90 * 24 * 60 * 60 * 1000))
+    res.cookie(name, value, cookieOptions(req, adminSessionMaxAgeMs))
   }
   return { value, hash: hashValue(value) }
 }
 
-function trustCurrentDevice(req, res) {
-  const device = ensureDeviceCookie(req, res)
-  const next = {
-    hash: device.hash,
-    ip: requestIp(req),
-    userAgentHash: userAgentHash(req),
-    lastVerifiedAt: new Date().toISOString(),
-  }
-  adminSecurity.trustedDevices = [
-    next,
-    ...adminSecurity.trustedDevices.filter((item) => item.hash !== device.hash),
-  ].slice(0, 20)
-  return device
-}
-
-function trustedDevice(req) {
+function currentDevice(req) {
   const cookies = parseCookies(req)
   const value =
     cookies[deviceCookieName(req)] ||
     cookies['__Host-miller-admin-device'] ||
     cookies['miller-admin-device']
-  if (!value) return false
-  const record = adminSecurity.trustedDevices.find((item) => item.hash === hashValue(value))
-  return Boolean(
-    record && record.ip === requestIp(req) && record.userAgentHash === userAgentHash(req),
+  return value ? { value, hash: hashValue(value) } : null
+}
+
+function trustedDevice(req) {
+  const device = currentDevice(req)
+  if (!device) return null
+  return (
+    adminSecurity.sessions.find(
+      (session) => session.deviceHash === device.hash && session.trusted === true,
+    ) || null
   )
+}
+
+function deviceLabel(userAgent = '') {
+  const value = String(userAgent)
+  const browser = /Edg\//i.test(value)
+    ? 'Edge'
+    : /Firefox\//i.test(value)
+      ? 'Firefox'
+      : /CriOS\//i.test(value)
+        ? 'Chrome'
+        : /Chrome\//i.test(value)
+          ? 'Chrome'
+          : /Safari\//i.test(value)
+            ? 'Safari'
+            : 'Browser'
+  const platform = /iPhone/i.test(value)
+    ? 'iPhone'
+    : /iPad/i.test(value)
+      ? 'iPad'
+      : /Android/i.test(value)
+        ? 'Android'
+        : /Windows/i.test(value)
+          ? 'Windows PC'
+          : /Macintosh|Mac OS/i.test(value)
+            ? 'Mac'
+            : /Linux/i.test(value)
+              ? 'Linux device'
+              : 'Device'
+  return `${browser} on ${platform}`
+}
+
+function maskIp(ip) {
+  const value = String(ip || 'unknown')
+  if (value.includes('.')) {
+    const parts = value.split('.')
+    if (parts.length === 4) return `${parts[0]}.${parts[1]}.${parts[2]}.x`
+  }
+  if (value.includes(':')) return `${value.split(':').slice(0, 3).join(':')}:…`
+  return value
+}
+
+function activateAdminSession(req, res, { trusted = true } = {}) {
+  const device = ensureDeviceCookie(req, res)
+  const now = new Date().toISOString()
+  const existing = adminSecurity.sessions.find((session) => session.deviceHash === device.hash)
+  const session = {
+    id: existing?.id || randomBytes(24).toString('base64url'),
+    deviceHash: device.hash,
+    trusted: trusted || existing?.trusted === true,
+    label: deviceLabel(req.get('user-agent')),
+    ip: requestIp(req),
+    userAgentHash: userAgentHash(req),
+    createdAt: existing?.createdAt || now,
+    lastSeenAt: now,
+  }
+  adminSecurity.sessions = [
+    session,
+    ...adminSecurity.sessions.filter((item) => item.id !== session.id),
+  ]
+    .sort(
+      (left, right) =>
+        Date.parse(right.lastSeenAt || right.createdAt || 0) -
+        Date.parse(left.lastSeenAt || left.createdAt || 0),
+    )
+    .slice(0, maxAdminSessions)
+  return session
+}
+
+function trustCurrentAdminSession(req, res) {
+  const current = req.adminSession
+  if (current) {
+    current.trusted = true
+    current.lastSeenAt = new Date().toISOString()
+    return current
+  }
+  return activateAdminSession(req, res, { trusted: true })
 }
 
 function issueCaptcha() {
@@ -722,16 +831,16 @@ app.post('/api/auth/login', async (req, res) => {
     admin.passwordHash = adminSecurity.passwordHash
   }
 
-  const needsMfa =
-    adminSecurity.mfa.enabled && (!trustedDevice(req) || adminSecurity.login.forceMfa)
+  const trusted = trustedDevice(req)
+  const needsMfa = adminSecurity.mfa.enabled && (!trusted || adminSecurity.login.forceMfa)
   if (needsMfa) {
-    ensureDeviceCookie(req, res)
-    audit(req, 'admin.mfa.required', trustedDevice(req) ? 'Repeated failures' : 'New device or IP')
+    const device = ensureDeviceCookie(req, res)
+    audit(req, 'admin.mfa.required', trusted ? 'Repeated failures' : 'New device')
     await saveSecurity()
     return res.json({
       mfaRequired: true,
       challengeToken: jwt.sign(
-        { sub: admin.id, role: 'admin', type: 'mfa-login' },
+        { sub: admin.id, role: 'admin', type: 'mfa-login', deviceHash: device.hash },
         adminJwtSecret,
         { expiresIn: '5m' },
       ),
@@ -744,8 +853,9 @@ app.post('/api/auth/login', async (req, res) => {
     'admin.login.succeeded',
     adminSecurity.mfa.enabled ? 'Trusted device' : 'MFA not bound',
   )
+  const adminSession = activateAdminSession(req, res, { trusted: true })
   await saveSecurity()
-  res.json({ user: issueSession(req, res, admin) })
+  res.json({ user: issueSession(req, res, admin, adminSession.id) })
 })
 
 app.post('/api/auth/mfa/verify', async (req, res) => {
@@ -759,6 +869,10 @@ app.post('/api/auth/mfa/verify', async (req, res) => {
   if (challenge.type !== 'mfa-login' || challenge.role !== 'admin') {
     return res.status(401).json({ message: 'Invalid authenticator challenge.' })
   }
+  const device = currentDevice(req)
+  if (!device || device.hash !== challenge.deviceHash) {
+    return res.status(401).json({ message: 'Authenticator challenge is for another device.' })
+  }
   await refreshSettings(true)
   if (!(await verifyAuthenticatorCode(code))) {
     audit(req, 'admin.mfa.failed', 'Invalid login code')
@@ -767,11 +881,11 @@ app.post('/api/auth/mfa/verify', async (req, res) => {
   }
   const admin = accounts.find((item) => item.id === challenge.sub && item.role === 'admin')
   if (!admin) return res.status(401).json({ message: 'Admin account is unavailable.' })
-  trustCurrentDevice(req, res)
+  const adminSession = activateAdminSession(req, res, { trusted: true })
   resetAdminFailures()
   audit(req, 'admin.login.succeeded', 'Authenticator verified')
   await saveSecurity()
-  res.json({ user: issueSession(req, res, admin) })
+  res.json({ user: issueSession(req, res, admin, adminSession.id) })
 })
 
 app.get('/api/auth/session/user', auth('user'), (req, res) => {
@@ -786,14 +900,34 @@ app.get('/api/auth/session/user', auth('user'), (req, res) => {
   })
 })
 
-app.get('/api/auth/session/admin', auth('admin'), (req, res) => {
+app.get('/api/auth/session/admin', auth('admin'), async (req, res) => {
+  req.adminSession.lastSeenAt = new Date().toISOString()
+  await saveSecurity()
   res.json({
     user: { id: req.auth.sub, name: req.auth.name, email: req.auth.email, role: 'admin' },
+    currentSessionId: req.adminSession.id,
   })
 })
 
-app.post('/api/auth/logout', (req, res) => {
+app.post('/api/auth/logout', async (req, res) => {
   const role = req.body?.role === 'admin' ? 'admin' : 'user'
+  if (role === 'admin') {
+    await refreshSettings(true)
+    const token = requestToken(req, role)
+    try {
+      const payload = jwt.verify(String(token || ''), adminJwtSecret)
+      if (payload.sid) {
+        adminSecurity.sessions = adminSecurity.sessions.filter(
+          (session) => session.id !== payload.sid,
+        )
+        audit(req, 'admin.session.signed_out')
+        await saveSecurity()
+      }
+    } catch {
+      // An expired or already revoked cookie can still be safely cleared.
+    }
+    clearDevice(req, res)
+  }
   clearSession(req, res, role)
   res.json({ message: 'Signed out.' })
 })
@@ -975,13 +1109,53 @@ app.post('/api/admin/mfa/verify-setup', auth('admin'), async (req, res) => {
   adminSecurity.mfa.secret = pending
   adminSecurity.mfa.pendingSecret = null
   adminSecurity.mfa.enabled = true
-  trustCurrentDevice(req, res)
+  trustCurrentAdminSession(req, res)
   audit(req, 'admin.mfa.bound')
   await saveSecurity()
   res.json({ enabled: true, message: 'Google Authenticator has been bound.' })
 })
 app.get('/api/admin/security/audit', auth('admin'), async (_req, res) => {
   res.json({ events: adminSecurity.auditLogs.slice(0, 20) })
+})
+app.get('/api/admin/security/sessions', auth('admin'), async (req, res) => {
+  const sessions = [...adminSecurity.sessions]
+    .sort(
+      (left, right) =>
+        Date.parse(right.lastSeenAt || right.createdAt || 0) -
+        Date.parse(left.lastSeenAt || left.createdAt || 0),
+    )
+    .map((session) => ({
+      id: session.id,
+      label: session.label || 'Browser device',
+      ip: maskIp(session.ip),
+      trusted: session.trusted === true,
+      current: session.id === req.adminSession.id,
+      createdAt: session.createdAt,
+      lastSeenAt: session.lastSeenAt,
+    }))
+  res.json({ sessions, limit: maxAdminSessions })
+})
+app.patch('/api/admin/security/sessions/:id', auth('admin'), async (req, res) => {
+  const session = adminSecurity.sessions.find((item) => item.id === req.params.id)
+  if (!session) return res.status(404).json({ message: 'Admin device session was not found.' })
+  session.trusted = req.body?.trusted !== false
+  session.lastSeenAt = new Date().toISOString()
+  audit(req, session.trusted ? 'admin.device.trusted' : 'admin.device.trust_removed', session.label)
+  await saveSecurity()
+  res.json({ trusted: session.trusted })
+})
+app.delete('/api/admin/security/sessions/:id', auth('admin'), async (req, res) => {
+  const session = adminSecurity.sessions.find((item) => item.id === req.params.id)
+  if (!session) return res.status(404).json({ message: 'Admin device session was not found.' })
+  const current = session.id === req.adminSession.id
+  adminSecurity.sessions = adminSecurity.sessions.filter((item) => item.id !== session.id)
+  audit(req, 'admin.session.revoked', session.label)
+  await saveSecurity()
+  if (current) {
+    clearSession(req, res, 'admin')
+    clearDevice(req, res)
+  }
+  res.json({ message: 'Device session signed out.', current })
 })
 app.put('/api/admin/password', auth('admin'), async (req, res) => {
   const { currentPassword, newPassword, mfaCode } = req.body || {}
@@ -1001,9 +1175,11 @@ app.put('/api/admin/password', auth('admin'), async (req, res) => {
   admin.passwordHash = await bcrypt.hash(String(newPassword), 12)
   adminSecurity.passwordHash = admin.passwordHash
   adminSecurity.sessionVersion += 1
+  const currentSession = adminSecurity.sessions.find((item) => item.id === req.adminSession.id)
+  adminSecurity.sessions = currentSession ? [currentSession] : []
   audit(req, 'admin.password.changed')
   await saveSecurity()
-  issueSession(req, res, admin)
+  if (currentSession) issueSession(req, res, admin, currentSession.id)
   res.json({ message: 'Password updated successfully. Other admin sessions were signed out.' })
 })
 app.get('/api/admin/users', auth('admin'), async (req, res) => {
