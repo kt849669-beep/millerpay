@@ -10,6 +10,31 @@
     { "source": "/login.html", "destination": "/login", "statusCode": 301 },
     { "source": "/miller-pay", "destination": "/miller-pay/", "statusCode": 301 },
     { "source": "/blog", "destination": "/blog/", "statusCode": 301 },
+    {
+      "source": "/blog/miller-pay-login-guide",
+      "destination": "/blog/miller-pay-login-guide/",
+      "statusCode": 301
+    },
+    {
+      "source": "/blog/miller-pay-app-download",
+      "destination": "/blog/miller-pay-app-download/",
+      "statusCode": 301
+    },
+    {
+      "source": "/blog/miller-pay-usdt-to-inr",
+      "destination": "/blog/miller-pay-usdt-to-inr/",
+      "statusCode": 301
+    },
+    {
+      "source": "/blog/miller-pay-inr-orders",
+      "destination": "/blog/miller-pay-inr-orders/",
+      "statusCode": 301
+    },
+    {
+      "source": "/blog/miller-pay-security",
+      "destination": "/blog/miller-pay-security/",
+      "statusCode": 301
+    },
     { "source": "/about", "destination": "/about/", "statusCode": 301 },
     { "source": "/legal", "destination": "/legal/", "statusCode": 301 }
   ],
@@ -19,6 +44,26 @@
     { "source": "/admin/", "destination": "/admin/index.html" },
     { "source": "/miller-pay/", "destination": "/miller-pay/index.html" },
     { "source": "/blog/", "destination": "/blog/index.html" },
+    {
+      "source": "/blog/miller-pay-login-guide/",
+      "destination": "/blog/miller-pay-login-guide/index.html"
+    },
+    {
+      "source": "/blog/miller-pay-app-download/",
+      "destination": "/blog/miller-pay-app-download/index.html"
+    },
+    {
+      "source": "/blog/miller-pay-usdt-to-inr/",
+      "destination": "/blog/miller-pay-usdt-to-inr/index.html"
+    },
+    {
+      "source": "/blog/miller-pay-inr-orders/",
+      "destination": "/blog/miller-pay-inr-orders/index.html"
+    },
+    {
+      "source": "/blog/miller-pay-security/",
+      "destination": "/blog/miller-pay-security/index.html"
+    },
     { "source": "/about/", "destination": "/about/index.html" },
     { "source": "/legal/", "destination": "/legal/index.html" }
   ],
