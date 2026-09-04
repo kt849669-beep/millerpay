@@ -140,6 +140,10 @@ let adminSecurity = structuredClone(defaultAdminSecurity)
 let settingsLoadedAt = 0
 let settingsLoadPromise = null
 const settingsCacheMs = 4_000
+const settingsBucket = 'miller-private'
+const settingsObject = 'system/app-settings.json'
+let settingsPersistence = 'database'
+let settingsBucketPromise = null
 const encryptionKey = createHash('sha256').update(mfaEncryptionKey).digest()
 
 function hashValue(value) {
@@ -201,21 +205,93 @@ function audit(req, action, detail = '') {
   ].slice(0, 100)
 }
 
+function settingsTableIsUnavailable(error) {
+  return ['PGRST205', '42P01'].includes(error?.code)
+}
+
+async function ensureSettingsBucket() {
+  if (!settingsBucketPromise) {
+    settingsBucketPromise = (async () => {
+      const { error: lookupError } = await supabase.storage.getBucket(settingsBucket)
+      if (!lookupError) return
+      const { error: createError } = await supabase.storage.createBucket(settingsBucket, {
+        public: false,
+        fileSizeLimit: 1024 * 1024,
+        allowedMimeTypes: ['application/json'],
+      })
+      if (createError && createError.statusCode !== '409' && createError.statusCode !== 409) {
+        throw createError
+      }
+    })().catch((error) => {
+      settingsBucketPromise = null
+      throw error
+    })
+  }
+  return settingsBucketPromise
+}
+
+async function readSettingsObject() {
+  await ensureSettingsBucket()
+  const { data, error } = await supabase.storage.from(settingsBucket).download(settingsObject)
+  if (error) {
+    const missing =
+      error.statusCode === '404' ||
+      error.statusCode === 404 ||
+      /not found|does not exist/i.test(error.message || '')
+    if (missing) return null
+    throw error
+  }
+  return JSON.parse(await data.text())
+}
+
+async function readStoredSettings() {
+  if (settingsPersistence === 'database') {
+    const { data, error } = await supabase
+      .from('app_settings')
+      .select('data')
+      .eq('id', 1)
+      .maybeSingle()
+    if (!error) return data?.data || (await readSettingsObject())
+    if (!settingsTableIsUnavailable(error)) throw error
+    settingsPersistence = 'storage'
+  }
+  return readSettingsObject()
+}
+
+async function writeStoredSettings(dataToSave) {
+  if (settingsPersistence === 'database') {
+    const { error } = await supabase
+      .from('app_settings')
+      .upsert({ id: 1, data: dataToSave, updated_at: new Date().toISOString() })
+    if (!error) return
+    if (!settingsTableIsUnavailable(error)) throw error
+    settingsPersistence = 'storage'
+  }
+  await ensureSettingsBucket()
+  const { error } = await supabase.storage
+    .from(settingsBucket)
+    .upload(settingsObject, Buffer.from(JSON.stringify(dataToSave)), {
+      contentType: 'application/json',
+      upsert: true,
+    })
+  if (error) throw error
+}
+
 async function loadSettings() {
   if (!supabase) {
     settingsLoadedAt = Date.now()
     return
   }
   try {
-    const { data } = await supabase.from('app_settings').select('data').eq('id', 1).single()
-    if (data?.data) {
+    const data = await readStoredSettings()
+    if (data) {
       const {
         adminPasswordHash,
         adminSecurity: savedAdminSecurity,
         deletedUserIds: savedDeletedUserIds,
         controlsInitialized: savedControlsInitialized,
         ...rest
-      } = data.data
+      } = data
       publicSettings = { ...defaultSettings, ...rest }
       adminSecurity = mergeAdminSecurity(savedAdminSecurity, adminPasswordHash)
       accounts[0].passwordHash = adminSecurity.passwordHash
@@ -228,6 +304,9 @@ async function loadSettings() {
         controlsInitialized = true
         await saveSettings()
       }
+    } else {
+      controlsInitialized = true
+      await saveSettings()
     }
   } catch (e) {
     console.error('Could not load settings:', e.message)
@@ -259,10 +338,7 @@ async function saveSettings() {
       deletedUserIds,
       controlsInitialized,
     }
-    const { error } = await supabase
-      .from('app_settings')
-      .upsert({ id: 1, data: dataToSave, updated_at: new Date().toISOString() })
-    if (error) throw error
+    await writeStoredSettings(dataToSave)
     settingsLoadedAt = Date.now()
   } catch (e) {
     console.error('Could not save settings:', e.message)
