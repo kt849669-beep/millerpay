@@ -349,8 +349,8 @@ function UsersPanel({ session }) {
 
   useEffect(() => {
     fetchUsers()
-    const interval = setInterval(fetchUsers, 5000)
-    return () => clearInterval(interval)
+    const interval = window.setInterval(fetchUsers, 10000)
+    return () => window.clearInterval(interval)
   }, [session])
 
   const handleDelete = async () => {
@@ -1219,9 +1219,22 @@ function ControlCenter({ session, onLogout }) {
   })
   const [syncState, setSyncState] = useState('Live sync')
   useEffect(() => {
-    apiRequest('/public/settings')
-      .then((data) => data.settings && setSettings(data.settings))
-      .catch(() => setSyncState('Sync unavailable'))
+    let active = true
+    const refreshSettings = () => {
+      apiRequest('/public/settings')
+        .then((data) => {
+          if (!active || !data.settings) return
+          setSettings(data.settings)
+          setSyncState('Live sync')
+        })
+        .catch(() => active && setSyncState('Sync unavailable'))
+    }
+    refreshSettings()
+    const interval = window.setInterval(refreshSettings, 10000)
+    return () => {
+      active = false
+      window.clearInterval(interval)
+    }
   }, [])
   const saveSettings = async (next) => {
     const previous = settings
