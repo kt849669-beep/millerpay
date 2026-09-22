@@ -37,7 +37,7 @@ Authentication sessions are delivered through Secure, HttpOnly, SameSite cookies
 bind Google Authenticator from the Authenticator section after signing in. Once bound, a current
 TOTP code is required for new devices or IP addresses and for administrator password changes.
 
-The public production domain is `https://millerpay-app.online`.
+The public production domain is `https://millerpay.online`.
 
 ## Production build
 

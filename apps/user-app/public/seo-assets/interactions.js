@@ -35,11 +35,11 @@ rateButtons.forEach((button) => {
 
 const faqAnswers = {
   'What is Miller Pay (MillerPay)?':
-    'Miller Pay is an Indian USDT to INR exchange and UPI order platform. You can sell USDT at ₹112–₹116 or process INR orders and earn 4% + 2% = 6% commission. The official website is millerpay-app.online.',
+    'Miller Pay is an Indian USDT to INR exchange and UPI order platform. You can sell USDT at ₹112–₹116 or process INR orders and earn 4% + 2% = 6% commission. The official website is millerpay.online.',
   'What is the official Miller Pay login link?':
-    'The only official Miller Pay login is millerpay-app.online. Always check the domain before entering your phone number and password.',
+    'The only official Miller Pay login is millerpay.online. Always check the domain before entering your phone number and password.',
   'How do I download the Miller Pay app / APK?':
-    "Miller Pay runs as a web app. Open millerpay-app.online in Chrome and tap 'Add to Home screen' to install it without a separate Play Store download.",
+    "Miller Pay runs as a web app. Open millerpay.online in Chrome and tap 'Add to Home screen' to install it without a separate Play Store download.",
   "What is today's USDT rate on Miller Pay?":
     '₹116 per USDT on the premium UPI wallet tier, ₹114 on IMPS and ₹112 on standard bank settlement. The rate is locked when you confirm your order.',
   'How is the 6% INR order commission calculated?':
