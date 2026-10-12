@@ -7,3 +7,6 @@ server/.env.security
 .vercel
 .env*
 public/
+.wrangler/
+.dev.vars*
+.cloudflare-secrets*.json
