@@ -60,11 +60,11 @@ for (const page of pages) {
       ),
       `Missing route: ${page.path}`,
     )
-    for (const match of html.matchAll(/<(?:img|script|link)\b[^>]*>/g)) {
+    for (const match of html.matchAll(/<(?:img|script|link)\b[^>]*>/gi)) {
       const tag = attributes(match[0])
       const path = tag.src || (tag.rel === 'stylesheet' || tag.rel === 'icon' ? tag.href : null)
       if (path?.startsWith('/')) await access(resolve(output, path.slice(1)))
-      if (match[0].startsWith('<img')) {
+      if (/^<img\b/i.test(match[0])) {
         assert(tag.alt && tag.width && tag.height, `Image text/dimensions missing: ${page.path}`)
         imageCount++
       }
