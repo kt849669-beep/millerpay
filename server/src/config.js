@@ -23,10 +23,9 @@ export const allowedOrigins = [
   process.env.PUBLIC_APP_URL,
   'http://localhost:5173',
   'http://localhost:5174',
-  'https://millerpay.online',
-  'https://www.millerpay.online',
-  'https://admin.millerpay.online',
-  'https://millerpay.vercel.app',
+  'https://millerpay-official.website',
+  'https://www.millerpay-official.website',
+  'https://admin.millerpay-official.website',
 ].filter(Boolean)
 
 export const localNetworkOrigin =
