@@ -1,6 +1,7 @@
 import { cp, readFile, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
+import { parse } from 'parse5'
 import { origin, updated, keywords, pages } from '../seo/site.mjs'
 
 const source = fileURLToPath(new URL('../seo/', import.meta.url))
@@ -91,19 +92,37 @@ function metadata(page) {
 // Only public SEO documents and the built login head are processed. Application
 // sources, bundles, the login body and all administrator files stay untouched.
 export function applyMetadata(html, page) {
-  if (!/<head\b[^>]*>[\s\S]*?<\/head>/i.test(html))
-    throw new Error(`Missing HTML head: ${page.file}`)
-  return html.replace(/<head\b[^>]*>([\s\S]*?)<\/head>/i, (_, original) => {
-    const head = original
-      .replace(/<title\b[^>]*>[\s\S]*?<\/title>\s*/gi, '')
-      .replace(
-        /<meta\b(?=[^>]*(?:name|property)=["'](?:description|keywords|robots|og:[^"']+|twitter:[^"']+)["'])[^>]*>\s*/gi,
-        '',
-      )
-      .replace(/<link\b(?=[^>]*rel=["'](?:canonical|me)["'])[^>]*>\s*/gi, '')
-      .replace(/<script\b[^>]*type=["']application\/ld\+json["'][^>]*>[\s\S]*?<\/script>\s*/gi, '')
-    return `<head>${head.trimEnd()}\n${metadata(page)}\n  </head>`
-  })
+  const document = parse(html, { sourceCodeLocationInfo: true })
+  const head = document.childNodes
+    .find((node) => node.tagName === 'html')
+    ?.childNodes.find((node) => node.tagName === 'head')
+  const location = head?.sourceCodeLocation
+  if (!location?.startTag || !location?.endTag) throw new Error(`Missing HTML head: ${page.file}`)
+  const start = location.startTag.endOffset
+  const end = location.endTag.startOffset
+  const removals = []
+  for (const node of head.childNodes) {
+    const attrs = Object.fromEntries((node.attrs ?? []).map(({ name, value }) => [name, value]))
+    const label = (attrs.name ?? attrs.property ?? '').toLowerCase()
+    const replace =
+      node.tagName === 'title' ||
+      (node.tagName === 'meta' &&
+        (['description', 'keywords', 'robots'].includes(label) ||
+          label.startsWith('og:') ||
+          label.startsWith('twitter:'))) ||
+      (node.tagName === 'link' && /(?:^|\s)(?:canonical|me)(?:\s|$)/i.test(attrs.rel ?? '')) ||
+      (node.tagName === 'script' && attrs.type?.toLowerCase() === 'application/ld+json')
+    if (!replace || !node.sourceCodeLocation) continue
+    const from = node.sourceCodeLocation.startOffset
+    let to = node.sourceCodeLocation.endOffset
+    while (to < end && /\s/.test(html[to])) to++
+    removals.push([from - start, to - start])
+  }
+  let content = html.slice(start, end)
+  for (const [from, to] of removals.sort((a, b) => b[0] - a[0])) {
+    content = content.slice(0, from) + content.slice(to)
+  }
+  return html.slice(0, start) + content.trimEnd() + `\n${metadata(page)}\n  ` + html.slice(end)
 }
 
 export async function prepareSeo(directory = output) {
