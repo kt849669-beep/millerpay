@@ -13,6 +13,8 @@
     "dev:admin": "npm run dev -w @millerpay/admin-app",
     "dev:server": "npm run dev -w server",
     "build": "npm run build -w @millerpay/user-app && npm run build -w @millerpay/admin-app && node scripts/prepare-vercel.mjs",
+    "build:seo": "node scripts/prepare-seo.mjs",
+    "check:seo": "node scripts/check-seo.mjs",
     "check": "npm run format:check && npm run build",
     "format": "prettier --write \"apps/**/*.{js,jsx,css,html,json}\" \"server/**/*.{js,json}\" \"*.{json,md}\"",
     "format:check": "prettier --check \"apps/**/*.{js,jsx,css,html,json}\" \"server/**/*.{js,json}\" \"*.{json,md}\"",

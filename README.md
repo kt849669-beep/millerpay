@@ -37,7 +37,18 @@ Authentication sessions are delivered through Secure, HttpOnly, SameSite cookies
 bind Google Authenticator from the Authenticator section after signing in. Once bound, a current
 TOTP code is required for new devices or IP addresses and for administrator password changes.
 
-The public production domain is `https://millerpay.online`.
+The public production domain is `https://millerpay-official.website`.
+
+## Public search pages
+
+Public SEO content is maintained in `seo/`, independently of the user and admin apps.
+The production packaging step copies these pages after the app builds, updates only
+the built login document's metadata, and generates `robots.txt` and `sitemap.xml`.
+Page titles, descriptions and the canonical domain are configured in `seo/site.mjs`.
+
+Run `npm run build:seo` to refresh the SEO output using the existing built login
+document, then `npm run check:seo` to validate public links, metadata and sitemap.
+See `seo/README.md` for media sources and the remaining domain/indexing setup.
 
 ## Production build
 
