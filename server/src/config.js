@@ -15,7 +15,6 @@ function requiredSecret(name) {
 
 export const userJwtSecret = requiredSecret('USER_JWT_SECRET')
 export const adminJwtSecret = requiredSecret('ADMIN_JWT_SECRET')
-export const mfaEncryptionKey = requiredSecret('MFA_ENCRYPTION_KEY')
 
 export const allowedOrigins = [
   process.env.USER_APP_URL,
