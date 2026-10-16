@@ -1,10 +1,8 @@
-const isProductionHost = /(^|\.)millerpay-app\.online$/i.test(window.location.hostname)
-
 export const API_URL =
   import.meta.env.VITE_API_URL ||
-  (isProductionHost
-    ? `${window.location.origin}/api`
-    : `${window.location.protocol}//${window.location.hostname}:5000/api`)
+  (import.meta.env.DEV
+    ? `${window.location.protocol}//${window.location.hostname}:5000/api`
+    : `${window.location.origin}/api`)
 
 export const MEDIA_ORIGIN = API_URL.replace(/\/api$/, '')
 
