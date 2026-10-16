@@ -30,7 +30,6 @@ const sections = [
   ['trash', 'Trash', Trash2],
   ['telegram', 'Telegram popup', Link2],
   ['popup', 'Video / image popup', Film],
-  ['authenticator', 'Authenticator', ShieldCheck],
   ['profile', 'Profile', UserRoundCog],
 ]
 
@@ -51,8 +50,6 @@ function Brand({ large = false }) {
 function Login({ onLogin }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [mfaCode, setMfaCode] = useState('')
-  const [mfaChallenge, setMfaChallenge] = useState('')
   const [captcha, setCaptcha] = useState(null)
   const [captchaAnswer, setCaptchaAnswer] = useState('')
   const [error, setError] = useState('')
@@ -62,28 +59,10 @@ function Login({ onLogin }) {
     setLoading(true)
     setError('')
     try {
-      const data = mfaChallenge
-        ? await apiRequest('/auth/mfa/verify', {
-            method: 'POST',
-            body: { challengeToken: mfaChallenge, code: mfaCode },
-          })
-        : await apiRequest('/auth/login', {
-            method: 'POST',
-            body: {
-              email,
-              password,
-              role: 'admin',
-              captchaId: captcha?.id,
-              captchaAnswer,
-            },
-          })
-      if (data.mfaRequired) {
-        setMfaChallenge(data.challengeToken)
-        setMfaCode('')
-        setCaptcha(null)
-        setCaptchaAnswer('')
-        return
-      }
+      const data = await apiRequest('/auth/login', {
+        method: 'POST',
+        body: { email, password, role: 'admin', captchaId: captcha?.id, captchaAnswer },
+      })
       onLogin(data)
     } catch (err) {
       if (err.data?.captcha) {
@@ -101,97 +80,58 @@ function Login({ onLogin }) {
         <Brand large />
         <div className="admin-login-heading">
           <span>CONTROL CENTER</span>
-          <h1>{mfaChallenge ? 'Authenticator Check' : 'Admin Login'}</h1>
-          <p>
-            {mfaChallenge
-              ? 'Enter the current 6-digit code for this device or network.'
-              : 'Manage your MillerPay app from one secure workspace.'}
-          </p>
+          <h1>Admin Login</h1>
+          <p>Manage your MillerPay app from one secure workspace.</p>
         </div>
         <form className="admin-login-form" onSubmit={submit}>
-          {mfaChallenge ? (
+          <label>
+            <span>Email</span>
+            <div>
+              <Mail />
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="Enter admin email"
+                autoComplete="username"
+                required
+              />
+            </div>
+          </label>
+          <label>
+            <span>Password</span>
+            <div>
+              <LockKeyhole />
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter password"
+                autoComplete="current-password"
+                required
+              />
+            </div>
+          </label>
+          {captcha && (
             <label>
-              <span>Google Authenticator code</span>
+              <span>Security check: {captcha.question}</span>
               <div>
                 <ShieldCheck />
                 <input
                   type="text"
                   inputMode="numeric"
-                  pattern="[0-9]{6}"
-                  maxLength="6"
-                  value={mfaCode}
-                  onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  placeholder="Enter 6-digit code"
-                  autoComplete="one-time-code"
+                  value={captchaAnswer}
+                  onChange={(e) => setCaptchaAnswer(e.target.value.replace(/\D/g, ''))}
+                  placeholder="Enter answer"
                   required
                 />
               </div>
             </label>
-          ) : (
-            <>
-              <label>
-                <span>Email</span>
-                <div>
-                  <Mail />
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="Enter admin email"
-                    autoComplete="username"
-                    required
-                  />
-                </div>
-              </label>
-              <label>
-                <span>Password</span>
-                <div>
-                  <LockKeyhole />
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter password"
-                    autoComplete="current-password"
-                    required
-                  />
-                </div>
-              </label>
-              {captcha && (
-                <label>
-                  <span>Security check: {captcha.question}</span>
-                  <div>
-                    <ShieldCheck />
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={captchaAnswer}
-                      onChange={(e) => setCaptchaAnswer(e.target.value.replace(/\D/g, ''))}
-                      placeholder="Enter answer"
-                      required
-                    />
-                  </div>
-                </label>
-              )}
-            </>
           )}
           {error && <p className="admin-form-error">{error}</p>}
           <button className="admin-primary" disabled={loading}>
-            {loading ? 'CHECKING…' : mfaChallenge ? 'VERIFY' : 'LOG IN'}
+            {loading ? 'CHECKING…' : 'LOG IN'}
           </button>
-          {mfaChallenge && (
-            <button
-              className="admin-login-back"
-              type="button"
-              onClick={() => {
-                setMfaChallenge('')
-                setMfaCode('')
-                setError('')
-              }}
-            >
-              Back to login
-            </button>
-          )}
         </form>
       </section>
     </main>
@@ -933,146 +873,10 @@ function SingleMediaControl({ kind, settings, setSettings, saveSettings, session
     </section>
   )
 }
-function AuthenticatorPanel({ session }) {
-  const [status, setStatus] = useState(null)
-  const [currentPassword, setCurrentPassword] = useState('')
-  const [code, setCode] = useState('')
-  const [setup, setSetup] = useState(null)
-  const [message, setMessage] = useState('')
-  const [loading, setLoading] = useState(false)
-
-  const loadStatus = () =>
-    apiRequest('/admin/mfa/status', { token: session.token })
-      .then((data) => setStatus(data))
-      .catch((error) => setMessage(error.message || 'Authenticator status is unavailable.'))
-
-  useEffect(loadStatus, [session.token])
-
-  const startSetup = async (event) => {
-    event.preventDefault()
-    setLoading(true)
-    setMessage('')
-    try {
-      const data = await apiRequest('/admin/mfa/setup', {
-        method: 'POST',
-        token: session.token,
-        body: { currentPassword },
-      })
-      setSetup(data)
-      setCurrentPassword('')
-    } catch (error) {
-      setMessage(error.message || 'Authenticator setup could not start.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const bind = async (event) => {
-    event.preventDefault()
-    setLoading(true)
-    setMessage('')
-    try {
-      const data = await apiRequest('/admin/mfa/verify-setup', {
-        method: 'POST',
-        token: session.token,
-        body: { code },
-      })
-      setStatus({ enabled: true })
-      setSetup(null)
-      setCode('')
-      setMessage(data.message)
-    } catch (error) {
-      setMessage(error.message || 'Authenticator code could not be verified.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  if (status?.enabled) {
-    return (
-      <section className="admin-panel authenticator-panel bound">
-        <header>
-          <div>
-            <span>SECURITY</span>
-            <h2>Google Authenticator</h2>
-          </div>
-          <ShieldCheck />
-        </header>
-        <div className="authenticator-mark">
-          <ShieldCheck />
-        </div>
-        <div className="authenticator-bound">Google Authenticator has been bound</div>
-        <p>
-          A current code is required on a new device or IP address and whenever the admin password
-          is changed.
-        </p>
-        {message && <p className="admin-message">{message}</p>}
-      </section>
-    )
-  }
-
-  return (
-    <section className="admin-panel authenticator-panel">
-      <header>
-        <div>
-          <span>SECURITY</span>
-          <h2>Google Authenticator</h2>
-        </div>
-        <ShieldCheck />
-      </header>
-      {!setup ? (
-        <form className="password-form" onSubmit={startSetup}>
-          <p>Confirm the current admin password before a private setup QR is created.</p>
-          <input
-            type="password"
-            value={currentPassword}
-            onChange={(event) => setCurrentPassword(event.target.value)}
-            placeholder="Current admin password"
-            autoComplete="current-password"
-            required
-          />
-          {message && <p className="admin-message">{message}</p>}
-          <button className="admin-primary" disabled={loading}>
-            {loading ? 'PREPARING…' : 'Set up Authenticator'}
-          </button>
-        </form>
-      ) : (
-        <form className="authenticator-setup" onSubmit={bind}>
-          <p>Scan this QR code with Google Authenticator or enter the key manually.</p>
-          <img src={setup.qrCode} alt="Private Google Authenticator setup QR code" />
-          <div className="manual-key">
-            <small>Manual setup key</small>
-            <strong>{setup.manualKey}</strong>
-          </div>
-          <label>
-            <span>Authenticator code</span>
-            <input
-              type="text"
-              inputMode="numeric"
-              pattern="[0-9]{6}"
-              maxLength="6"
-              value={code}
-              onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-              placeholder="Enter 6-digit code"
-              autoComplete="one-time-code"
-              required
-            />
-          </label>
-          {message && <p className="admin-message">{message}</p>}
-          <button className="admin-primary" disabled={loading || code.length !== 6}>
-            {loading ? 'VERIFYING…' : 'Bind'}
-          </button>
-        </form>
-      )}
-    </section>
-  )
-}
-
 function Profile({ session }) {
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [mfaCode, setMfaCode] = useState('')
   const [message, setMessage] = useState('')
   const [events, setEvents] = useState([])
   const [deviceSessions, setDeviceSessions] = useState([])
@@ -1147,12 +951,11 @@ function Profile({ session }) {
       await apiRequest('/admin/password', {
         method: 'PUT',
         token: session.token,
-        body: { currentPassword, newPassword, mfaCode },
+        body: { currentPassword, newPassword },
       })
       setCurrentPassword('')
       setNewPassword('')
       setConfirmPassword('')
-      setMfaCode('')
       setMessage('Password updated successfully.')
     } catch (error) {
       setMessage(error.message || 'Password could not be updated.')
@@ -1187,17 +990,6 @@ function Profile({ session }) {
             value={currentPassword}
             onChange={(e) => setCurrentPassword(e.target.value)}
             placeholder="Current password"
-            required
-          />
-          <input
-            type="text"
-            inputMode="numeric"
-            pattern="[0-9]{6}"
-            maxLength="6"
-            value={mfaCode}
-            onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-            placeholder="Google Authenticator code"
-            autoComplete="one-time-code"
             required
           />
           <input
@@ -1446,7 +1238,6 @@ function ControlCenter({ session, onLogout }) {
               session={session}
             />
           )}{' '}
-          {active === 'authenticator' && <AuthenticatorPanel session={session} />}
           {active === 'profile' && <Profile session={session} />}
         </div>
       </section>
