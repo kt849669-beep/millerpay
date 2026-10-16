@@ -35,6 +35,16 @@ Use the existing production values to preserve sessions and encrypted settings.
 The Supabase project must be active and reachable for account and data operations.
 `/api/health` checks API availability; it does not verify database availability.
 
+### Owner credential recovery
+
+To recover a forgotten administrator login, set `ADMIN_EMAIL`, `ADMIN_PASSWORD`,
+and a new unique `ADMIN_CREDENTIAL_VERSION` as Worker secrets. Upload them together
+with the deployment using `wrangler deploy --secrets-file <ignored-json-file>`.
+On the next settings load, the new revision replaces the persisted administrator
+password, clears login lockouts, and revokes old admin sessions and trusted devices.
+Existing Authenticator MFA remains enabled. Keep the same revision on later deployments
+so password changes made inside the admin app are preserved. Never commit the secret file.
+
 For local testing, put the same variables in an ignored `.dev.vars` file and run
 `npx wrangler@4.149.0 dev --port 8791`.
 
