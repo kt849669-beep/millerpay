@@ -8,6 +8,7 @@
     "server"
   ],
   "scripts": {
+    "test": "node --test",
     "dev": "concurrently -n API,USER,ADMIN -c yellow,cyan,magenta \"npm run dev -w server\" \"npm run dev -w @millerpay/user-app\" \"npm run dev -w @millerpay/admin-app\"",
     "dev:user": "npm run dev -w @millerpay/user-app",
     "dev:admin": "npm run dev -w @millerpay/admin-app",
