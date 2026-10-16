@@ -11,6 +11,7 @@ import QRCode from 'qrcode'
 import { createClient } from '@supabase/supabase-js'
 import { existsSync, readFileSync } from 'node:fs'
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
+import { recoverAdminSecurity } from './admin-recovery.js'
 import {
   adminIdentity,
   adminJwtSecret,
@@ -313,13 +314,19 @@ async function loadSettings() {
         ? [...new Set(savedDeletedUserIds.map(String))]
         : []
       controlsInitialized = savedControlsInitialized === true
-      if (!controlsInitialized) {
-        publicSettings.banner = false
-        controlsInitialized = true
-        await saveSettings()
-      }
-    } else {
+    }
+    const recovery = recoverAdminSecurity(adminSecurity, {
+      revision: process.env.ADMIN_CREDENTIAL_VERSION,
+      passwordHash: defaultAdminSecurity.passwordHash,
+      loginDefaults: defaultAdminSecurity.login,
+    })
+    adminSecurity = recovery.security
+    accounts[0].passwordHash = adminSecurity.passwordHash
+    if (!controlsInitialized) {
+      publicSettings.banner = false
       controlsInitialized = true
+      await saveSettings()
+    } else if (recovery.recovered || !data) {
       await saveSettings()
     }
   } catch (e) {
