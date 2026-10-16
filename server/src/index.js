@@ -6,18 +6,14 @@ import morgan from 'morgan'
 import rateLimit from 'express-rate-limit'
 import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
-import { generateSecret, generateURI, verify as verifyOtp } from 'otplib'
-import QRCode from 'qrcode'
 import { createClient } from '@supabase/supabase-js'
 import { existsSync, readFileSync } from 'node:fs'
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
-import { recoverAdminSecurity } from './admin-recovery.js'
+import { createHash, randomBytes } from 'node:crypto'
 import {
   adminIdentity,
   adminJwtSecret,
   allowedOrigins,
   localNetworkOrigin,
-  mfaEncryptionKey,
   port,
   userJwtSecret,
 } from './config.js'
@@ -57,7 +53,7 @@ app.use(express.json({ limit: '1mb' }))
 
 app.use(morgan('dev'))
 app.use(
-  ['/api/auth/login', '/api/auth/mfa/verify'],
+  '/api/auth/login',
   rateLimit({
     windowMs: 15 * 60 * 1000,
     limit: 20,
@@ -123,7 +119,6 @@ let deletedUserIds = []
 let controlsInitialized = false
 const defaultAdminSecurity = {
   passwordHash: accounts[0].passwordHash,
-  mfa: { enabled: false, secret: null, pendingSecret: null },
   login: {
     failuresInStage: 0,
     failuresSinceSuccess: 0,
@@ -131,7 +126,6 @@ const defaultAdminSecurity = {
     lockUntil: null,
     captchaRequired: false,
     captcha: null,
-    forceMfa: false,
   },
   sessionVersion: 1,
   trustedDevices: [],
@@ -146,7 +140,6 @@ const settingsBucket = 'miller-private'
 const settingsObject = 'system/app-settings.json'
 let settingsPersistence = 'database'
 let settingsBucketPromise = null
-const encryptionKey = createHash('sha256').update(mfaEncryptionKey).digest()
 const maxAdminSessions = 6
 const adminSessionMaxAgeMs = 400 * 24 * 60 * 60 * 1000
 
@@ -154,29 +147,9 @@ function hashValue(value) {
   return createHash('sha256').update(String(value)).digest('hex')
 }
 
-function encryptValue(value) {
-  const iv = randomBytes(12)
-  const cipher = createCipheriv('aes-256-gcm', encryptionKey, iv)
-  const encrypted = Buffer.concat([cipher.update(String(value), 'utf8'), cipher.final()])
-  return [
-    iv.toString('base64url'),
-    cipher.getAuthTag().toString('base64url'),
-    encrypted.toString('base64url'),
-  ].join('.')
-}
-
-function decryptValue(value) {
-  const [iv, tag, encrypted] = String(value || '').split('.')
-  if (!iv || !tag || !encrypted) throw new Error('Authenticator secret is unavailable.')
-  const decipher = createDecipheriv('aes-256-gcm', encryptionKey, Buffer.from(iv, 'base64url'))
-  decipher.setAuthTag(Buffer.from(tag, 'base64url'))
-  return Buffer.concat([
-    decipher.update(Buffer.from(encrypted, 'base64url')),
-    decipher.final(),
-  ]).toString('utf8')
-}
-
 function mergeAdminSecurity(saved = {}, legacyPasswordHash) {
+  const { mfa: _legacyMfa, ...savedSecurity } = saved
+  const { forceMfa: _legacyForceMfa, ...savedLogin } = saved.login || {}
   const sessions = Array.isArray(saved.sessions)
     ? saved.sessions
         .filter((session) => session?.id && session?.deviceHash)
@@ -189,10 +162,9 @@ function mergeAdminSecurity(saved = {}, legacyPasswordHash) {
     : []
   return {
     ...defaultAdminSecurity,
-    ...saved,
+    ...savedSecurity,
     passwordHash: saved.passwordHash || legacyPasswordHash || defaultAdminSecurity.passwordHash,
-    mfa: { ...defaultAdminSecurity.mfa, ...(saved.mfa || {}) },
-    login: { ...defaultAdminSecurity.login, ...(saved.login || {}) },
+    login: { ...defaultAdminSecurity.login, ...savedLogin },
     trustedDevices: Array.isArray(saved.trustedDevices) ? saved.trustedDevices.slice(-20) : [],
     sessions,
     auditLogs: Array.isArray(saved.auditLogs) ? saved.auditLogs.slice(-100) : [],
@@ -315,22 +287,17 @@ async function loadSettings() {
         : []
       controlsInitialized = savedControlsInitialized === true
     }
-    const recovery = recoverAdminSecurity(adminSecurity, {
-      revision: process.env.ADMIN_CREDENTIAL_VERSION,
-      passwordHash: defaultAdminSecurity.passwordHash,
-      loginDefaults: defaultAdminSecurity.login,
-    })
-    adminSecurity = recovery.security
-    accounts[0].passwordHash = adminSecurity.passwordHash
     if (!controlsInitialized) {
       publicSettings.banner = false
       controlsInitialized = true
       await saveSettings()
-    } else if (recovery.recovered || !data) {
+    } else if (!data) {
       await saveSettings()
     }
   } catch (e) {
-    console.error('Could not load settings:', e.message)
+    console.error('Could not load settings:', e.message, {
+      databaseHost: new URL(process.env.SUPABASE_URL).hostname,
+    })
   } finally {
     settingsLoadedAt = Date.now()
   }
@@ -607,16 +574,6 @@ function currentDevice(req) {
   return value ? { value, hash: hashValue(value) } : null
 }
 
-function trustedDevice(req) {
-  const device = currentDevice(req)
-  if (!device) return null
-  return (
-    adminSecurity.sessions.find(
-      (session) => session.deviceHash === device.hash && session.trusted === true,
-    ) || null
-  )
-}
-
 function deviceLabel(userAgent = '') {
   const value = String(userAgent)
   const browser = /Edg\//i.test(value)
@@ -683,16 +640,6 @@ function activateAdminSession(req, res, { trusted = true } = {}) {
   return session
 }
 
-function trustCurrentAdminSession(req, res) {
-  const current = req.adminSession
-  if (current) {
-    current.trusted = true
-    current.lastSeenAt = new Date().toISOString()
-    return current
-  }
-  return activateAdminSession(req, res, { trusted: true })
-}
-
 function issueCaptcha() {
   const left = 10 + Math.floor(Math.random() * 40)
   const right = 2 + Math.floor(Math.random() * 18)
@@ -725,7 +672,6 @@ async function recordAdminFailure(req) {
   login.failuresInStage += 1
   login.failuresSinceSuccess += 1
   login.captchaRequired = login.failuresSinceSuccess >= 3
-  login.forceMfa = login.failuresSinceSuccess >= 5
   audit(req, 'admin.login.failed', `Attempt ${login.failuresSinceSuccess}`)
   let lockMinutes = 0
   if (login.failuresInStage >= 3) {
@@ -741,16 +687,6 @@ async function recordAdminFailure(req) {
 
 function resetAdminFailures() {
   adminSecurity.login = structuredClone(defaultAdminSecurity.login)
-}
-
-async function verifyAuthenticatorCode(code, encryptedSecret = adminSecurity.mfa.secret) {
-  if (!encryptedSecret || !/^\d{6}$/.test(String(code || ''))) return false
-  try {
-    const result = await verifyOtp({ secret: decryptValue(encryptedSecret), token: String(code) })
-    return result.valid === true
-  } catch {
-    return false
-  }
 }
 
 app.get('/', (_req, res, next) => {
@@ -850,59 +786,9 @@ app.post('/api/auth/login', async (req, res) => {
     admin.passwordHash = adminSecurity.passwordHash
   }
 
-  const trusted = trustedDevice(req)
-  const needsMfa = adminSecurity.mfa.enabled && (!trusted || adminSecurity.login.forceMfa)
-  if (needsMfa) {
-    const device = ensureDeviceCookie(req, res)
-    audit(req, 'admin.mfa.required', trusted ? 'Repeated failures' : 'New device')
-    await saveSecurity()
-    return res.json({
-      mfaRequired: true,
-      challengeToken: jwt.sign(
-        { sub: admin.id, role: 'admin', type: 'mfa-login', deviceHash: device.hash },
-        adminJwtSecret,
-        { expiresIn: '5m' },
-      ),
-    })
-  }
-
   resetAdminFailures()
-  audit(
-    req,
-    'admin.login.succeeded',
-    adminSecurity.mfa.enabled ? 'Trusted device' : 'MFA not bound',
-  )
+  audit(req, 'admin.login.succeeded', 'Email and password verified')
   const adminSession = activateAdminSession(req, res, { trusted: true })
-  await saveSecurity()
-  res.json({ user: issueSession(req, res, admin, adminSession.id) })
-})
-
-app.post('/api/auth/mfa/verify', async (req, res) => {
-  const { challengeToken, code } = req.body || {}
-  let challenge
-  try {
-    challenge = jwt.verify(String(challengeToken || ''), adminJwtSecret)
-  } catch {
-    return res.status(401).json({ message: 'Authenticator challenge expired. Sign in again.' })
-  }
-  if (challenge.type !== 'mfa-login' || challenge.role !== 'admin') {
-    return res.status(401).json({ message: 'Invalid authenticator challenge.' })
-  }
-  const device = currentDevice(req)
-  if (!device || device.hash !== challenge.deviceHash) {
-    return res.status(401).json({ message: 'Authenticator challenge is for another device.' })
-  }
-  await refreshSettings(true)
-  if (!(await verifyAuthenticatorCode(code))) {
-    audit(req, 'admin.mfa.failed', 'Invalid login code')
-    await saveSecurity()
-    return res.status(401).json({ message: 'Incorrect Authenticator code.' })
-  }
-  const admin = accounts.find((item) => item.id === challenge.sub && item.role === 'admin')
-  if (!admin) return res.status(401).json({ message: 'Admin account is unavailable.' })
-  const adminSession = activateAdminSession(req, res, { trusted: true })
-  resetAdminFailures()
-  audit(req, 'admin.login.succeeded', 'Authenticator verified')
   await saveSecurity()
   res.json({ user: issueSession(req, res, admin, adminSession.id) })
 })
@@ -1096,43 +982,6 @@ app.delete('/api/admin/popup-media', auth('admin'), async (req, res) => {
   await saveSecurity()
   res.json({ settings: publicSettings })
 })
-app.get('/api/admin/mfa/status', auth('admin'), async (_req, res) => {
-  res.json({ enabled: adminSecurity.mfa.enabled === true })
-})
-app.post('/api/admin/mfa/setup', auth('admin'), async (req, res) => {
-  const { currentPassword } = req.body || {}
-  if (!(await bcrypt.compare(String(currentPassword || ''), adminSecurity.passwordHash))) {
-    audit(req, 'admin.mfa.setup.failed', 'Current password rejected')
-    await saveSecurity()
-    return res.status(400).json({ message: 'Current password is incorrect.' })
-  }
-  if (adminSecurity.mfa.enabled) {
-    return res.status(409).json({ message: 'Google Authenticator is already bound.' })
-  }
-  const secret = generateSecret()
-  adminSecurity.mfa.pendingSecret = encryptValue(secret)
-  const uri = generateURI({ issuer: 'Miller Pay Admin', label: adminIdentity.email, secret })
-  const qrCode = await QRCode.toDataURL(uri, { width: 360, margin: 2, errorCorrectionLevel: 'M' })
-  audit(req, 'admin.mfa.setup.started')
-  await saveSecurity()
-  res.json({ qrCode, manualKey: secret })
-})
-app.post('/api/admin/mfa/verify-setup', auth('admin'), async (req, res) => {
-  const pending = adminSecurity.mfa.pendingSecret
-  if (!pending) return res.status(400).json({ message: 'Start Authenticator setup again.' })
-  if (!(await verifyAuthenticatorCode(req.body?.code, pending))) {
-    audit(req, 'admin.mfa.setup.failed', 'Invalid verification code')
-    await saveSecurity()
-    return res.status(400).json({ message: 'Incorrect Authenticator code.' })
-  }
-  adminSecurity.mfa.secret = pending
-  adminSecurity.mfa.pendingSecret = null
-  adminSecurity.mfa.enabled = true
-  trustCurrentAdminSession(req, res)
-  audit(req, 'admin.mfa.bound')
-  await saveSecurity()
-  res.json({ enabled: true, message: 'Google Authenticator has been bound.' })
-})
 app.get('/api/admin/security/audit', auth('admin'), async (_req, res) => {
   res.json({ events: adminSecurity.auditLogs.slice(0, 20) })
 })
@@ -1177,18 +1026,10 @@ app.delete('/api/admin/security/sessions/:id', auth('admin'), async (req, res) =
   res.json({ message: 'Device session signed out.', current })
 })
 app.put('/api/admin/password', auth('admin'), async (req, res) => {
-  const { currentPassword, newPassword, mfaCode } = req.body || {}
+  const { currentPassword, newPassword } = req.body || {}
   const admin = accounts.find((item) => item.role === 'admin' && item.id === req.auth.sub)
   if (!admin || !(await bcrypt.compare(String(currentPassword || ''), adminSecurity.passwordHash)))
     return res.status(400).json({ message: 'Current password is incorrect.' })
-  if (!adminSecurity.mfa.enabled) {
-    return res.status(409).json({ message: 'Bind Google Authenticator before changing password.' })
-  }
-  if (!(await verifyAuthenticatorCode(mfaCode))) {
-    audit(req, 'admin.password.failed', 'Invalid Authenticator code')
-    await saveSecurity()
-    return res.status(400).json({ message: 'Incorrect Authenticator code.' })
-  }
   if (String(newPassword || '').length < 8)
     return res.status(400).json({ message: 'New password must be at least 8 characters.' })
   admin.passwordHash = await bcrypt.hash(String(newPassword), 12)
